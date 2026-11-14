@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>Что у нас есть?</title>
+<!-- Домашняя аптечка — личные данные, в поиске ей делать нечего. Закрыто
+     навсегда, переменной «включить» нет (server.js, robots.txt). -->
+<meta name="robots" content="noindex, nofollow">
+<meta name="description" content="Домашняя аптечка и запасы: что есть, когда истекает, где лежит.">
+
+<link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+<link rel="manifest" href="/manifest.webmanifest">
+
+<!-- Установка на телефон. Android читает манифест, iOS — почти целиком нет,
+     поэтому для него всё дублируется метами ниже. -->
+<link rel="apple-touch-icon" sizes="180x180" href="/assets/icons/apple-touch-icon-180.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<!-- Имя под иконкой на iOS. Без этой строки берётся <title>, а он у нас
+     разный на каждом маршруте: добавили с «Мест» — и на телефоне появилась
+     иконка «Места — Что у нас есть?». -->
+<meta name="apple-mobile-web-app-title" content="Аптечка">
+<!-- Две строки, а не одна: на светлой теме чёрная шапка выглядит поломкой. -->
+<meta name="theme-color" content="#f7f9ff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0b0d12" media="(prefers-color-scheme: dark)">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/brand.css">
+<link rel="stylesheet" href="/assets/styles.css">
+</head>
+<body>
+
+<!-- Фирменный фон. Повадка искр — «гаснут»: искра поднимается, замирает и
+     гаснет, и чем выше она успела подняться, тем раньше гаснет. Одна фраза
+     о сервисе, переведённая в движение (Design/services.md, шаг 4):
+     у всего есть срок. -->
+<div class="bh-backdrop bh-backdrop--page bh-backdrop--quiet" aria-hidden="true">
+  <div class="bh-layer bh-glow"></div>
+  <div class="bh-layer bh-haze"></div>
+  <div class="bh-layer bh-sparks bh-sparks--expire" data-bh-sparks="8"></div>
+</div>
+
+<header class="top">
+  <div class="bh-lockup">
+    <a class="bh-lockup-home" href="https://burninghouse.ru" aria-label="BurningHouse — каталог сервисов">
+      <!-- Знак вставлен inline, а не через <img>: иначе градиент не увидит
+           переменные сервиса и уедет в чёрный (Design/mark.md). -->
+      <svg class="bh-mark" viewBox="0 0 24 24" role="img" aria-hidden="true">
+        <defs>
+          <linearGradient id="bh-flame" x1="0" y1="1" x2="0" y2="0">
+            <stop offset="0" stop-color="var(--flame-base, #7f1d1d)"/>
+            <stop offset="1" stop-color="var(--flame-tip, #e8f0ff)"/>
+          </linearGradient>
+        </defs>
+        <path class="bh-flame" fill="url(#bh-flame)" fill-rule="evenodd"
+              d="M12 1.2C13.6 5 16.4 6.6 18.2 9.4C21.4 14.4 18.6 22.4 12 22.4C5.4 22.4 2.6 14.4 5.8 9.4C7.2 7.2 9.2 6 10.2 3.4C10.9 5.6 11.4 6.6 12 7.4C12.4 5.6 12.3 3.4 12 1.2ZM12 9.8 7.4 13.6V19.2H16.6V13.6Z"/>
+      </svg>
+      <span class="bh-name">BurningHouse</span>
+    </a>
+    <span class="bh-sep" aria-hidden="true"></span>
+    <a class="bh-lockup-service" href="/" data-link aria-label="Что у нас есть? — на главную сервиса">
+      <span class="bh-service">Что у нас есть?</span>
+    </a>
+  </div>
+  <div class="top-right" id="account"></div>
+</header>
+
+<nav class="tabs" id="tabs" aria-label="Разделы">
+  <a href="/" data-link data-tab="">Аптечка</a>
+  <a href="/mesta" data-link data-tab="mesta">Места</a>
+  <a href="/dokupit" data-link data-tab="dokupit">Докупить</a>
+  <a href="/dom" data-link data-tab="dom">Дом</a>
+</nav>
+
+<main id="view" class="view">
+  <p class="loading">Загружаю…</p>
+</main>
+
+<!-- Главное действие сервиса — добавить упаковку, поэтому кнопки не прячутся
+     в меню и не уезжают за сгиб: учёт заводят стоя у шкафчика, одной рукой.
+     Сканирование — главное из двух: «поднёс — добавилось». Ручной ввод рядом
+     и всегда доступен: код читается не всегда, а на старых упаковках его
+     может не быть вовсе. -->
+<div class="fab-row">
+  <button class="fab fab-mini" id="addBtn" type="button" aria-label="Добавить руками">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+  </button>
+  <button class="fab" id="scanBtn" type="button" hidden>
+    <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M3 8V5a2 2 0 0 1 2-2h3M16 3h3a2 2 0 0 1 2 2v3M21 16v3a2 2 0 0 1-2 2h-3M8 21H5a2 2 0 0 1-2-2v-3"/>
+      <path d="M7 12h10"/>
+    </svg>
+    <span>Сканировать</span>
+  </button>
+</div>
+
+<div class="sheet-host" id="sheetHost" hidden></div>
+<div class="toast-host" id="toastHost" aria-live="polite"></div>
+
+<script src="/assets/brand.js" defer></script>
+<!-- expiry.js и gs1.js — обычные скрипты, а не модули: их же подключает
+     сервер через require, и второй копии этих правил быть не должно. -->
+<script src="/assets/expiry.js"></script>
+<script src="/assets/gs1.js"></script>
+<script type="module" src="/assets/app.js"></script>
+</body>
+</html>

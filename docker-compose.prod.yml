@@ -1,0 +1,41 @@
+name: bh-zapas
+
+services:
+  zapas:
+    image: shadowkick/zapas:latest
+    container_name: zapas
+    restart: unless-stopped
+    labels:
+      # Watchtower обновляет контейнер сам, когда в Docker Hub появляется новый
+      # образ (установка: deploy/watchtower-compose.yml в репозитории Auth).
+      com.centurylinklabs.watchtower.enable: "true"
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8799
+      # ОБЯЗАТЕЛЬНО ровно тот адрес, что задан у auth в ISSUER: он подписан внутрь
+      # токенов. Регистрация клиента в auth (один раз):
+      #   docker compose exec auth node server.js client-add zapas "Что у нас есть?" https://zapas.burninghouse.ru/
+      AUTH_ISSUER: https://auth.burninghouse.ru
+      AUTH_CLIENT_ID: zapas
+      # Общий ключ с Admin: /internal/stats и /internal/logs, а также уборка
+      # данных удалённых аккаунтов. Хранится в .env рядом с этим файлом
+      # (bash set-env.sh ADMIN_INTERNAL_KEY <ключ>). Без ключа /internal/*
+      # выключены, остальное работает.
+      ADMIN_INTERNAL_KEY: ${ADMIN_INTERNAL_KEY:-}
+      # Ключи VAPID для уведомлений на устройство генерируются сами при
+      # первом запуске и лежат в data/vapid.json (том). Задавать переменными
+      # нужно, только если захочется одинаковых ключей на нескольких
+      # машинах: смена ключей обнуляет все подписки браузеров.
+      # VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY — необязательны.
+      VAPID_SUBJECT: https://zapas.burninghouse.ru
+      PUBLIC_URL: https://zapas.burninghouse.ru
+      # GIGACHAT_AUTH_KEY здесь НЕ нужен: инструкции разбирает tools/leaflet.mjs
+      # на машине разработчика, в рантайме сеть не нужна (ARCHITECTURE.md).
+    ports:
+      # Только на localhost — наружу отдаёт nginx на 443.
+      - "127.0.0.1:8799:8799"
+    volumes:
+      - zapas-data:/app/data
+
+volumes:
+  zapas-data:

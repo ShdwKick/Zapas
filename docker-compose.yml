@@ -1,0 +1,22 @@
+name: bh-zapas
+
+services:
+  zapas:
+    build: .
+    image: shadowkick/zapas:latest
+    container_name: zapas
+    restart: unless-stopped
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8799
+      # Локальный auth. Без него сервис тоже работает — как гостевой.
+      AUTH_ISSUER: http://localhost:8792
+      AUTH_CLIENT_ID: zapas
+    ports:
+      # Только localhost — наружу отдаёт nginx.
+      - "127.0.0.1:8799:8799"
+    volumes:
+      - zapas-data:/app/data
+
+volumes:
+  zapas-data:
