@@ -115,9 +115,10 @@ DataMatrix и при плохом свете. В браузерной панел
 
 ## Выкатка
 
-Как у остальных сервисов: пуш в `main` → GitHub Actions собирает образ и
-кладёт в Docker Hub → Watchtower на сервере забирает его сам. SSH-ключей в
-секретах нет.
+Пошагово, с проверками и граблями — **[deploy/README.md](deploy/README.md)**.
+Коротко: пуш в `main` → GitHub Actions собирает образ и кладёт в Docker Hub →
+Watchtower на сервере забирает его сам. SSH-ключей в секретах нет.
+nginx ставится скриптом: `sudo bash deploy/install-nginx.sh`.
 
 Один раз зарегистрировать клиента в auth:
 
