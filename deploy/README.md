@@ -81,15 +81,48 @@ docker compose -f docker-compose.prod.yml logs --tail=20
 curl -s localhost:8799/api/config
 ```
 
-## 6. nginx
+## 6. nginx и сертификат
 
 ```bash
 sudo bash deploy/install-nginx.sh
 ```
 
-Скрипт сам получит сертификат, уберёт старые конфиги этого домена в
+Скрипт сам выпустит сертификат, уберёт старые конфиги этого домена в
 `/root/nginx-backup-zapas-*`, проверит `nginx -t` и откатится, если не
-сошлось. В конце он проверяет две вещи: что домен отвечает именно этим
+сошлось.
+
+**Про 80-й порт.** Сертификаты на этом сервере выпускаются через
+`certbot certonly --standalone`, а standalone на время проверки поднимает
+своего слушателя на 80-м порту. Этот порт занят nginx-ом — редиректом
+http→https. Поэтому выпуск идёт с хуками:
+
+```bash
+sudo certbot certonly --standalone -d zapas.burninghouse.ru \
+  --pre-hook "systemctl stop nginx" --post-hook "systemctl start nginx" \
+  --deploy-hook "systemctl reload nginx"
+```
+
+Nginx гаснет секунд на десять. Важнее другое: **certbot сохраняет эти хуки в
+конфиг продления**, поэтому через два месяца продление не упадёт с
+«port 80 in use».
+
+Плагин `--nginx` здесь не используется: `python3-certbot-nginx` на сервере не
+установлен, и выпускать один сертификат иначе, чем соседние, — плохая идея.
+
+### Соседние сертификаты
+
+Те, что выпускали просто `certbot certonly --standalone -d домен`, хуков не
+имеют. Пока nginx держит 80-й порт, их продление сломано — и узнаете об этом
+не сразу, а когда сертификат протухнет. Скрипт в конце это проверяет и
+называет такие домены поимённо. Проверить самому и починить разом:
+
+```bash
+sudo certbot renew --dry-run
+printf 'pre-hook = systemctl stop nginx\npost-hook = systemctl start nginx\n' | sudo tee -a /etc/letsencrypt/cli.ini
+```
+
+`cli.ini` действует на все будущие запуски certbot, включая автоматическое
+продление по таймеру. В конце он проверяет две вещи: что домен отвечает именно этим
 сервисом и что **распознаватель кодов уезжает сжатым** (409 КБ вместо 925) —
 gzip для `application/wasm` в конфиге есть именно для этого.
 

@@ -71,10 +71,30 @@ restore() {
 }
 
 # ---------- 2. сертификат ----------
+# Способ выпуска — --standalone, как у всех сертификатов этого сервера.
+# Плагина --nginx здесь нет (python3-certbot-nginx не установлен), и ставить
+# его ради одного домена значит выпускать этот сертификат иначе, чем соседние.
+#
+# Хуки: --standalone поднимает своего слушателя на 80-м порту, а его занимает
+# nginx (блок редиректа http→https ниже). pre/post останавливают nginx на
+# время проверки — секунд на десять — и поднимают обратно. Главное же в том,
+# что certbot СОХРАНЯЕТ эти хуки в конфиг продления: без них продление через
+# два месяца упало бы с «port 80 in use», молча и ночью.
 CERT="/etc/letsencrypt/live/$DOMAIN/fullchain.pem"
 if [ ! -f "$CERT" ]; then
-  echo "Сертификата для $DOMAIN нет — получаю через certbot…"
-  certbot certonly --nginx -d "$DOMAIN" || { echo "certbot не справился (DNS $DOMAIN указывает на этот сервер?)"; restore; exit 1; }
+  echo "Сертификата для $DOMAIN нет — выпускаю через certbot --standalone…"
+  if ! certbot certonly --standalone -d "$DOMAIN" \
+       --pre-hook "systemctl stop nginx" \
+       --post-hook "systemctl start nginx" \
+       --deploy-hook "systemctl reload nginx"; then
+    echo
+    echo "certbot не выпустил сертификат — его причина напечатана выше дословно."
+    echo "Чаще всего это одно из двух:"
+    echo "  1) DNS не указывает на этот сервер:   dig +short $DOMAIN"
+    echo "  2) 80-й порт занят не nginx-ом:       ss -tulpn | grep ':80 '"
+    restore
+    exit 1
+  fi
 fi
 
 # ---------- 3. новый конфиг ----------
@@ -156,4 +176,28 @@ if [ "$WASM" -gt 0 ] && [ "$WASM" -lt 600000 ]; then
   echo "Сжатие работает: распознаватель уезжает как $WASM байт вместо 946860."
 else
   echo "ВНИМАНИЕ: распознаватель отдаётся несжатым ($WASM байт). Проверьте gzip_types и gzip_proxied."
+fi
+
+# ---------- 7. продление СОСЕДНИХ сертификатов ----------
+# Этот сертификат продлится сам: хуки сохранены в его конфиг. А вот соседние,
+# выпущенные просто `certbot certonly --standalone -d домен`, ждёт сюрприз:
+# пока nginx слушает 80-й порт, standalone-проверка не сможет его занять.
+# Проявится это не сегодня, а месяца через два и сразу у всех доменов.
+if ss -tulpn 2>/dev/null | grep -q ':80 '; then
+  NOHOOK=()
+  for f in /etc/letsencrypt/renewal/*.conf; do
+    [ -f "$f" ] || continue
+    grep -q "standalone" "$f" || continue
+    grep -qE "^\s*pre_hook" "$f" || NOHOOK+=("$(basename "$f" .conf)")
+  done
+  if [ ${#NOHOOK[@]} -gt 0 ]; then
+    echo
+    echo "ВНИМАНИЕ: 80-й порт занят nginx-ом, а эти сертификаты продлеваются"
+    echo "через --standalone и БЕЗ хука остановки nginx:"
+    printf '  %s\n' "${NOHOOK[@]}"
+    echo "Продление у них упадёт с «port 80 in use». Проверить:"
+    echo "  sudo certbot renew --dry-run"
+    echo "Починить разом (хуки для всех будущих продлений):"
+    echo "  printf 'pre-hook = systemctl stop nginx\\npost-hook = systemctl start nginx\\n' | sudo tee -a /etc/letsencrypt/cli.ini"
+  fi
 fi
