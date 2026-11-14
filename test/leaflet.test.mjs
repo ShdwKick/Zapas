@@ -36,13 +36,16 @@ const DOC = `Регистрационный номер: П N 014247/01 Торг�
     name: "Синупрет", nameQuote: "Торговое наименование: Синупрет ®",
     regNumber: "П N 014247/01", regNumberQuote: "Регистрационный номер: П N 014247/01",
     form: "капли для приема внутрь", formQuote: "Лекарственная форма: капли для приема внутрь",
-    afterOpenDays: 180, afterOpenDaysQuote: "После вскрытия флакона: не более 6 месяцев.",
+    afterOpenValue: 6, afterOpenValueQuote: "После вскрытия флакона: не более 6 месяцев.",
+    afterOpenUnit: "месяцев", afterOpenUnitQuote: "После вскрытия флакона: не более 6 месяцев.",
     storageMaxC: 25, storageMaxCQuote: "при температуре не выше 25 °С",
     rx: false, rxQuote: "Отпускают без рецепта",
     mnn: null, mnnQuote: null,
   }, DOC);
-  eq("всё подтверждённое прошло", ok.fields,
-    { name: "Синупрет", regNumber: "П N 014247/01", form: "капли для приема внутрь", afterOpenDays: 180, storageMaxC: 25, rx: false });
+  // Порядок ключей значения не имеет: afterOpenDays считается после разбора.
+  const sorted = o => Object.fromEntries(Object.entries(o).sort(([a], [b]) => a.localeCompare(b)));
+  eq("всё подтверждённое прошло", sorted(ok.fields), sorted(
+    { name: "Синупрет", regNumber: "П N 014247/01", form: "капли для приема внутрь", afterOpenDays: 180, storageMaxC: 25, rx: false }));
   eq("ничего не отброшено", ok.rejected.length, 0);
   eq("цитаты сохранены", Object.keys(ok.quotes).length, 6);
   eq("отсутствующее поле просто отсутствует", "mnn" in ok.fields, false);
@@ -51,21 +54,44 @@ const DOC = `Регистрационный номер: П N 014247/01 Торг�
 { // выдумка не проходит — это и есть весь смысл
   const bad = verify({
     name: "Синупрет", nameQuote: "Торговое наименование: Синупрет ®",
-    afterOpenDays: 28, afterOpenDaysQuote: "После вскрытия флакона: не более 28 дней.",
+    afterOpenValue: 28, afterOpenValueQuote: "После вскрытия флакона: не более 28 дней.",
+    afterOpenUnit: "дней", afterOpenUnitQuote: "После вскрытия флакона: не более 28 дней.",
     storageMaxC: 15, storageMaxCQuote: null,
     rx: true, rxQuote: "Отпускают по рецепту",
   }, DOC);
   eq("прошло только название", Object.keys(bad.fields), ["name"]);
-  eq("три поля отброшены", bad.rejected.map(r => [r.key, r.why]), [
-    ["afterOpenDays", "цитаты нет в документе"],
+  eq("выдуманный срок отброшен вместе с единицей", bad.rejected.map(r => [r.key, r.why]), [
+    ["afterOpenValue", "цитаты нет в документе"],
+    ["afterOpenUnit", "цитаты нет в документе"],
     ["storageMaxC", "цитата не приведена"],
     ["rx", "цитаты нет в документе"],
   ]);
 }
 
+{ // пересчёт единиц делает код, а не модель
+  const good = verify({
+    name: "Синупрет", nameQuote: "Торговое наименование: Синупрет ®",
+    afterOpenValue: 6, afterOpenUnit: "месяцев", afterOpenValueQuote: "После вскрытия флакона: не более 6 месяцев.",
+    afterOpenUnitQuote: "После вскрытия флакона: не более 6 месяцев.",
+  }, DOC);
+  eq("«6 месяцев» стало 180 днями", good.fields.afterOpenDays, 180);
+  eq("сырые поля не утекли наружу", ["afterOpenValue" in good.fields, "afterOpenUnit" in good.fields], [false, false]);
+  eq("цитата закреплена за итоговым полем", good.quotes.afterOpenDays, "После вскрытия флакона: не более 6 месяцев.");
+
+  const noUnit = verify({
+    afterOpenValue: 6, afterOpenValueQuote: "После вскрытия флакона: не более 6 месяцев.",
+  }, DOC);
+  eq("без единицы поля нет", noUnit.fields.afterOpenDays, undefined);
+  eq("и это названо причиной", noUnit.rejected.map(r => r.why), ["не понял единицу срока"]);
+}
+
 { // цитата верная, а значение — не число
-  const odd = verify({ afterOpenDays: "полгода", afterOpenDaysQuote: "После вскрытия флакона: не более 6 месяцев." }, DOC);
-  eq("нечисловой срок не проходит", [odd.fields.afterOpenDays, odd.rejected[0].why], [undefined, "не число"]);
+  const odd = verify({ afterOpenValue: "полгода", afterOpenUnit: "месяцев",
+    afterOpenValueQuote: "После вскрытия флакона: не более 6 месяцев.",
+    afterOpenUnitQuote: "После вскрытия флакона: не более 6 месяцев." }, DOC);
+  eq("нечисловой срок не проходит",
+    [odd.fields.afterOpenDays, odd.rejected.find(r => r.key === "afterOpenDays").why],
+    [undefined, "срок не число"]);
 }
 
 { // скан: текста нет — сверять не с чем, значит ничего и не берём

@@ -71,6 +71,35 @@
     return { on, source, daysLeft, status: statusOf(daysLeft) };
   }
 
+  /**
+   * «6 месяцев» → 180 дней. Пересчёт делает КОД, а не модель.
+   *
+   * Это не придирка к стилю, а результат проверки: на плохом снимке
+   * инструкции GigaChat прочитал текст верно («не более 6 месяцев»), а в
+   * поле «дней» положил 6. Цитата при этом настоящая, то есть сверка цитат
+   * такую ошибку не ловит в принципе. Поэтому у модели спрашивают только то,
+   * что напечатано — число и единицу, — а арифметику делаем здесь.
+   *
+   * Месяц считаем за 30 дней, год за 365: на упаковках пишут «6 месяцев»,
+   * а не «с 13 ноября по 13 мая», и точность до дня тут мнимая.
+   */
+  const UNITS = [
+    [/^дн|^день|^сут/i, 1],
+    [/^недел/i, 7],
+    [/^мес/i, 30],
+    [/^год|^лет|^года/i, 365],
+  ];
+  function afterOpenDaysFrom(value, unit) {
+    const n = typeof value === "string" ? Number(value.replace(",", ".")) : value;
+    if (!Number.isFinite(n) || n <= 0) return null;
+    const u = String(unit || "").trim();
+    const found = UNITS.find(([re]) => re.test(u));
+    if (!found) return null;
+    const days = Math.round(n * found[1]);
+    // Больше пяти лет — это не «после вскрытия», а ошибка распознавания.
+    return days >= 1 && days <= 1825 ? days : null;
+  }
+
   /** Состояние по остатку дней. daysLeft === 0 — истекает сегодня, ещё годно. */
   function statusOf(daysLeft) {
     if (daysLeft === null || daysLeft === undefined) return "unknown";
@@ -124,7 +153,7 @@
     return `${n} ${word}`;
   }
 
-  const E = { SOON, URGENT, isMonth, isDay, endOfMonth, addDays, diffDays, effective, statusOf, compare, human, label, plural, ORDER, MONTHS, MONTHS_GEN };
+  const E = { SOON, URGENT, isMonth, isDay, endOfMonth, addDays, diffDays, effective, statusOf, compare, human, label, plural, afterOpenDaysFrom, ORDER, MONTHS, MONTHS_GEN };
   if (typeof module === "object" && module.exports) module.exports = E;
   else root.ZapasExpiry = E;
 })(typeof globalThis !== "undefined" ? globalThis : this);

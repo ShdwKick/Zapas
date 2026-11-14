@@ -31,7 +31,9 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import https from "node:https";
 import path from "node:path";
+import { createRequire } from "node:module";
 import { pdfText, quoteFound } from "./pdftext.mjs";
+const X = createRequire(import.meta.url)("../assets/expiry.js");
 
 const OAUTH = { host: "ngw.devices.sberbank.ru", port: 9443, path: "/api/v2/oauth" };
 const API = { host: "gigachat.devices.sberbank.ru", port: 443 };
@@ -42,7 +44,11 @@ export const FIELDS = {
   regNumber: "регистрационный номер",
   mnn: "МНН или действующее вещество; у растительных сборов его нет",
   form: "лекарственная форма",
-  afterOpenDays: "срок годности ПОСЛЕ вскрытия упаковки, в днях (число)",
+  // Число и единицу спрашиваем ОТДЕЛЬНО и как напечатано: пересчётом модель
+  // ошибается («не более 6 месяцев» → 6), а цитата при этом настоящая, то
+  // есть сверка цитат такую ошибку не ловит. Пересчёт — в assets/expiry.js.
+  afterOpenValue: "срок годности ПОСЛЕ вскрытия: число КАК НАПИСАНО, без пересчёта",
+  afterOpenUnit: "единица этого срока как написана: дней / недель / месяцев / лет",
   storageMaxC: "верхняя граница температуры хранения, °C (число)",
   rx: "отпускается ли по рецепту (true/false)",
 };
@@ -126,11 +132,30 @@ export function verify(data, text) {
       rejected.push({ key, value, quote: quote || null, why: quote ? "цитаты нет в документе" : "цитата не приведена" });
       continue;
     }
-    out[key] = key === "afterOpenDays" || key === "storageMaxC" ? asInt(value)
+    out[key] = key === "storageMaxC" ? asInt(value)
       : key === "rx" ? !!value
-        : String(value).trim();
+        : key === "afterOpenValue" ? value
+          : String(value).trim();
     if (out[key] === null) { delete out[key]; rejected.push({ key, value, quote, why: "не число" }); continue; }
     quotes[key] = String(quote).trim();
+  }
+  // Пересчёт делает код. Единицы нет или она непонятна — поля не будет.
+  if (out.afterOpenValue !== undefined) {
+    const days = X.afterOpenDaysFrom(out.afterOpenValue, out.afterOpenUnit);
+    if (days === null) {
+      const n = Number(String(out.afterOpenValue).replace(",", "."));
+      rejected.push({
+        key: "afterOpenDays",
+        value: `${out.afterOpenValue} ${out.afterOpenUnit || "?"}`,
+        quote: quotes.afterOpenValue || null,
+        why: !Number.isFinite(n) || n <= 0 ? "срок не число" : "не понял единицу срока",
+      });
+    } else {
+      out.afterOpenDays = days;
+      quotes.afterOpenDays = quotes.afterOpenValue;
+    }
+    delete out.afterOpenValue; delete out.afterOpenUnit;
+    delete quotes.afterOpenValue; delete quotes.afterOpenUnit;
   }
   return { fields: out, quotes, rejected };
 }

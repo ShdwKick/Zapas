@@ -19,6 +19,7 @@
  */
 import fs from "node:fs";
 import zlib from "node:zlib";
+import { createRequire } from "node:module";
 
 /** Распаковать поток объекта; не сжат — вернуть как есть. */
 function streamOf(body) {
@@ -113,27 +114,10 @@ export function pdfText(buf) {
   return out.join("").replace(/[  ]+/g, " ").trim();
 }
 
-/**
- * Приведение к виду, в котором можно искать цитату.
- *
- * Два правила, оба найдены на живой инструкции, а не придуманы:
- *  - переносы: в PDF встречается «при темпе - ратуре», модель склеивает
- *    правильно, и наивный поиск подстроки промахивается;
- *  - пробелы: их расстановка в PDF своя, сравнивать по ним нельзя.
- */
-export function normalize(s) {
-  return String(s || "")
-    .replace(/­/g, "")
-    .replace(/(\p{L})\s*-\s+(\p{L})/gu, "$1$2")
-    .replace(/\s+/g, "")
-    .toLowerCase();
-}
-
-/** Есть ли цитата в тексте документа. Это и есть вся защита от выдумки. */
-export function quoteFound(quote, text) {
-  const q = normalize(quote);
-  return q.length >= 8 && normalize(text).includes(q);
-}
+// Сверка цитат переехала в assets/quotes.js: тем же правилам подчиняется
+// сервер, когда читает фотографию вкладыша. Здесь реэкспорт, чтобы
+// инструмент и его тесты брали правила из одного места.
+export const { normalize, quoteFound } = createRequire(import.meta.url)("../assets/quotes.js");
 
 if (import.meta.filename === process.argv[1]) {
   const file = process.argv[2];

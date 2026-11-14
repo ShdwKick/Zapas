@@ -87,5 +87,19 @@ const eff = (pack, item = {}) => X.effective(pack, item, TODAY);
   eq("склонение: 22 дня", X.plural(22, "день", "дня", "дней"), "22 дня");
 }
 
+{ // пересчёт единиц: главный вывод проверки на фотографиях инструкции
+  eq("6 месяцев", X.afterOpenDaysFrom(6, "месяцев"), 180);
+  eq("число строкой, как приходит от модели", X.afterOpenDaysFrom("6", "месяцев"), 180);
+  eq("28 дней", X.afterOpenDaysFrom(28, "дней"), 28);
+  eq("4 недели", X.afterOpenDaysFrom(4, "недели"), 28);
+  eq("2 года", X.afterOpenDaysFrom(2, "года"), 730);
+  eq("запятая в числе", X.afterOpenDaysFrom("1,5", "месяца"), 45);
+  eq("единица не указана — не угадываем", X.afterOpenDaysFrom(6, ""), null);
+  eq("непонятная единица", X.afterOpenDaysFrom(6, "флаконов"), null);
+  eq("ноль и отрицательное", [X.afterOpenDaysFrom(0, "дней"), X.afterOpenDaysFrom(-5, "дней")], [null, null]);
+  eq("неправдоподобно много — ошибка распознавания", X.afterOpenDaysFrom(99, "лет"), null);
+  eq("не число", X.afterOpenDaysFrom("шесть", "месяцев"), null);
+}
+
 console.log(fails ? `\nПровалено: ${fails}` : "\nВсё прошло.");
 process.exit(fails ? 1 : 0);
