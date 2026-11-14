@@ -58,6 +58,8 @@ function createRemoteStore() {
     cancelInvite: id => call(`/api/invites/${id}`, { method: "DELETE" }),
     removeMember: userId => call(`/api/household/members/${userId}`, { method: "DELETE" }),
     setNotify: body => call("/api/me/notify", { method: "PUT", body }),
+    readLeaflet: (image, name) => call("/api/leaflet/photo", { method: "POST", body: { image, name } }),
+    shareToCatalog: body => call("/api/catalog", { method: "POST", body: { ...body, source: "photo" } }),
     pushKey: () => call("/api/push/key").then(r => r?.publicKey),
     pushSubscribe: subscription => call("/api/push/subscribe", { method: "POST", body: { subscription } }),
     pushUnsubscribe: endpoint => call("/api/push/unsubscribe", { method: "POST", body: { endpoint } }),
@@ -583,6 +585,10 @@ function openAdd(pre = {}) {
         <option value="">— не указано —</option>
         ${state.places.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join("")}
       </select></label>
+      ${cfg.photoReading && !api.guest ? `<p class="shoot">
+        <button class="btn ghost" type="button" id="shootBtn">Прочитать с инструкции</button>
+        <small>Сфотографируйте вкладыш — срок после вскрытия и условия хранения заполнятся сами.</small>
+      </p>` : ""}
       <details class="extra">
         <summary>Ещё</summary>
         <label>Годен после вскрытия, дней<input name="afterOpenDays" inputmode="numeric" placeholder="28" value="${val(it.afterOpenDays)}">
@@ -599,6 +605,25 @@ function openAdd(pre = {}) {
     // Знакомый код — курсор сразу в месяц: остальное уже заполнено.
     const first = pre.known ? host.querySelector('[name="expMonth"]') : host.querySelector('[name="name"]');
     if (first) first.focus();
+
+    const shoot = $("#shootBtn");
+    if (shoot) shoot.onclick = () => {
+      const form = $("#addForm");
+      if (!form.name.value.trim()) return toast("Сначала название — по нему препарат попадёт в каталог");
+      // Форму переоткрываем: лист со снимком её закрывает, а введённое терять нельзя.
+      const keep = Object.fromEntries(new FormData(form).entries());
+      readLeafletPhoto(form, (taken, quotes) => {
+        const merged = { ...pre, item: { ...(pre.item || {}), ...taken }, keep, fromPhoto: { ...taken, quotes } };
+        openAdd(merged);
+        toast(Object.keys(taken).length ? "Подставлено — проверьте и добавьте" : "Ничего не подставлено");
+      });
+    };
+
+    // Возврат после снимка: восстанавливаем то, что человек уже ввёл.
+    if (pre.keep) for (const [k, v] of Object.entries(pre.keep)) {
+      const el = host.querySelector(`[name="${k}"]`);
+      if (el && !el.value && v) el.value = v;
+    }
     $("#addForm").onsubmit = async e => {
       e.preventDefault();
       const f = new FormData(e.target);
@@ -628,8 +653,82 @@ function openAdd(pre = {}) {
       const r = await api.addPack(body);
       closeSheet();
       if (!r) return toast("Не получилось добавить");
+      // Подтверждённое со снимка уезжает в общий каталог: следующий дом с
+      // этим препаратом получит поля даром. Анонимно — см. ARCHITECTURE.md.
+      if (pre.fromPhoto) {
+        const { quotes, ...fields } = pre.fromPhoto;
+        api.shareToCatalog({ name: body.name, dose: body.dose, gtin: body.gtin, ...fields, quotes })
+          .catch(e => console.error("В общий каталог не ушло:", e));
+      }
       toast(r.duplicate ? "Эта коробка уже была в аптечке" : `«${r.item.name}» добавлен`);
       render();
+    };
+  });
+}
+
+/* ---------- снимок вкладыша ---------- */
+
+const FIELD_LABEL = {
+  afterOpenDays: "Годен после вскрытия",
+  storageMaxC: "Хранить не выше",
+  rx: "Отпуск",
+  form: "Форма",
+  mnn: "Действующее вещество",
+};
+const fieldText = (k, v) => k === "afterOpenDays" ? `${v} ${X.plural(v, "день", "дня", "дней").split(" ")[1]}`
+  : k === "storageMaxC" ? `${v} °C`
+    : k === "rx" ? (v ? "по рецепту" : "без рецепта")
+      : String(v);
+
+/** Снимок → черновик полей → экран подтверждения. Применяет только то, что человек подтвердил. */
+async function readLeafletPhoto(form, onApply) {
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = "image/*";
+  // capture подсказывает телефону открыть камеру сразу, но выбор из галереи
+  // остаётся: вкладыш могли сфотографировать заранее.
+  input.capture = "environment";
+  input.onchange = async () => {
+    const file = input.files && input.files[0];
+    if (!file) return;
+    const image = await new Promise(r => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.readAsDataURL(file); });
+    toast("Читаю вкладыш…");
+    let r;
+    try { r = await api.readLeaflet(image, form.name.value.trim()); }
+    catch (e) { return toast("Не получилось прочитать снимок"); }
+    if (!r) return toast("Снимок не подошёл — нужен кадр страницы инструкции");
+    showLeafletDraft(r, form, onApply);
+  };
+  input.click();
+}
+
+function showLeafletDraft(r, form, onApply) {
+  const got = Object.entries(r.fields || {});
+  openSheet(`
+    <div class="pack-sheet">
+      <h2>Что удалось прочитать</h2>
+      ${r.mismatch ? `<p class="warn">На снимке написано «${esc(r.nameOnPhoto)}», а вы вводите «${esc(form.name.value.trim())}». Та ли это коробка?</p>` : ""}
+      ${got.length ? `
+        <p class="hint">Сверьте с бумагой в руке — распознавание может ошибиться в цифре, и по цитате это не видно.</p>
+        <ul class="draft">${got.map(([k, v]) => `<li>
+          <label class="check"><input type="checkbox" data-take="${k}" checked>
+            <span><b>${esc(FIELD_LABEL[k] || k)}:</b> ${esc(fieldText(k, v))}</span></label>
+          ${r.quotes && r.quotes[k] ? `<q>${esc(r.quotes[k])}</q>` : `<q class="noq">цитаты нет</q>`}
+        </li>`).join("")}</ul>`
+        : `<p class="empty">Ничего прочитать не удалось. Бывает: мятый вкладыш, тень, слишком мелкий текст. Можно снять ещё раз или ввести руками.</p>`}
+      ${(r.rejected || []).length ? `<p class="hint">Отброшено как неподтверждённое: ${r.rejected.map(x => esc(FIELD_LABEL[x.key] || x.key)).join(", ")}.</p>` : ""}
+      <div class="actions">
+        <button class="btn ghost" type="button" data-close>Отмена</button>
+        ${got.length ? `<button class="btn" type="button" id="takeDraft">Подставить</button>` : ""}
+      </div>
+    </div>`, () => {
+    const btn = $("#takeDraft");
+    if (!btn) return;
+    btn.onclick = () => {
+      const taken = {};
+      for (const c of host.querySelectorAll("[data-take]")) if (c.checked) taken[c.dataset.take] = r.fields[c.dataset.take];
+      closeSheet();
+      onApply(taken, r.quotes || {});
     };
   });
 }

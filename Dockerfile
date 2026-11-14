@@ -17,16 +17,17 @@ RUN mkdir -p /app/data && chown -R node:node /app
 # здесь. assets/expiry.js в списке не случайно: его требует lib/store.js,
 # и забыть его в COPY легче всего — он выглядит как файл фронта.
 RUN set -e; \
-    for f in server.js auth-client.js admin-internal.js lib/store.js lib/webpush.js index.html sw.js \
+    for f in server.js auth-client.js admin-internal.js lib/store.js lib/webpush.js \
+             lib/gigachat.js lib/gigachat-ca.pem index.html sw.js \
              manifest.webmanifest assets/app.js assets/local.js assets/expiry.js \
              assets/styles.css assets/brand.css assets/brand.js assets/auth-client.js \
-             assets/gs1.js assets/scan.js bank/gtin.json bank/leaflets.json \
+             assets/gs1.js assets/scan.js assets/quotes.js bank/gtin.json bank/leaflets.json \
              assets/favicon.svg assets/icons/icon-512.png \
              assets/icons/icon-maskable-512.png assets/icons/apple-touch-icon-180.png; do \
       test -f "$f" || { echo "В образе нет $f — проверьте COPY в Dockerfile"; exit 1; }; \
     done; \
     node --check server.js && node --check auth-client.js && node --check admin-internal.js \
-      && node --check lib/store.js && node --check lib/webpush.js \
+      && node --check lib/store.js && node --check lib/webpush.js && node --check lib/gigachat.js \
       && node --check assets/expiry.js && node --check assets/gs1.js
 
 USER node

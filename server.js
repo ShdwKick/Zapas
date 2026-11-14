@@ -54,6 +54,23 @@ const BANK = readBank("gtin.json", "коды будут спрашивать н�
 const LEAFLETS = readBank("leaflets.json", "поля из инструкций подставляться не будут");
 
 const store = require("./lib/store")({ dataDir: DATA_DIR, bank: BANK, leaflets: LEAFLETS });
+
+/* Чтение снимка вкладыша. Ключ нужен только для этого; без него сервис
+   работает целиком, просто не предлагает сфотографировать инструкцию. */
+const giga = require("./lib/gigachat")({ authKey: process.env.GIGACHAT_AUTH_KEY });
+if (!giga.ready) console.log("GIGACHAT_AUTH_KEY не задан — чтение вкладышей выключено, остальное работает.");
+
+/* Сколько снимков в сутки на человека. Не ради жадности: промах по кнопке
+   в цикле способен выесть лимит токенов за вечер, и узнаешь об этом по счёту. */
+const PHOTOS_PER_DAY = Number(process.env.PHOTOS_PER_DAY) || 30;
+const photoUse = new Map();   // userId -> { day, n }
+function photoQuota(userId, day) {
+  const cur = photoUse.get(userId);
+  if (!cur || cur.day !== day) { photoUse.set(userId, { day, n: 1 }); return true; }
+  if (cur.n >= PHOTOS_PER_DAY) return false;
+  cur.n++;
+  return true;
+}
 const { checkAdminKey, createAdminLog } = require("./admin-internal");
 const adminLog = createAdminLog(store.db);
 
@@ -180,6 +197,16 @@ const ROUTES = {
 const isAppRoute = rel => Object.prototype.hasOwnProperty.call(ROUTES, rel)
   || /^upakovka\/[0-9a-f-]{36}$/.test(rel) || /^mesto\/[0-9a-f-]{36}$/.test(rel);
 
+/** Похожи ли названия настолько, чтобы не поднимать тревогу. Сравнение
+ *  грубое намеренно: это подсказка «кажется, снята не та коробка», а не
+ *  проверка. Модель и так путает буквы (Синупрет → Сипнур). */
+function sameName(a, b) {
+  const n = x => String(x).toLowerCase().replace(/[®™\s.,-]/g, "");
+  const x = n(a), y = n(b);
+  if (!x || !y) return true;
+  return x.startsWith(y.slice(0, 4)) || y.startsWith(x.slice(0, 4));
+}
+
 const escapeAttr = s => String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
 
 /** Подмена по месту вместо шаблонизатора, как у Brain: страница одна, полей мало. */
@@ -244,6 +271,8 @@ async function handleApi(req, res, p) {
       clientId: AUTH_CLIENT_ID,
       kinds: store.KINDS,
       units: store.UNITS,
+      // Фронт не предлагает сфотографировать вкладыш, если читать нечем.
+      photoReading: giga.ready,
     });
   }
 
@@ -260,7 +289,10 @@ async function handleApi(req, res, p) {
   // ---- server-to-server для Admin (не SSO, общий ключ) ----
   if (p.startsWith("/internal/")) {
     if (!checkAdminKey(req)) return json(res, 403, { error: "forbidden" });
-    if (p === "/internal/stats" && method === "GET") return json(res, 200, { ok: true, ...store.stats() });
+    if (p === "/internal/stats" && method === "GET") return json(res, 200, { ok: true, ...store.stats(), catalog: store.catalogSize(), wanted: store.wantedList(500).length });
+    if (p === "/internal/wanted" && method === "GET") {
+      return json(res, 200, { wanted: store.wantedList(Number(url.searchParams.get("limit")) || 100) });
+    }
     if (p === "/internal/logs" && method === "GET") {
       const since = Number(url.searchParams.get("since")) || undefined;
       return json(res, 200, { logs: adminLog.recent({ since, limit: Number(url.searchParams.get("limit")) || 200 }) });
@@ -400,6 +432,45 @@ async function handleApi(req, res, p) {
       gtin: url.searchParams.get("gtin"),
       serial: url.searchParams.get("serial"),
     }));
+  }
+
+  /* ---------- снимок вкладыша ---------- */
+
+  /* Читает и НИЧЕГО не сохраняет: ответ — черновик, который человек
+     подтверждает глазами по бумаге в руке. Сверка цитат ловит выдуманные
+     факты, но не ловит неверно прочитанную цифру, поэтому экран
+     подтверждения обязателен (ARCHITECTURE.md, «Фотография вкладыша»). */
+  if (p === "/api/leaflet/photo" && method === "POST") {
+    if (!giga.ready) return json(res, 503, { error: "not_configured" });
+    if (!photoQuota(user.id, store.dayIn(store.validTz(tz) || store.DEFAULT_TZ))) {
+      return json(res, 429, { error: "too_many_photos", perDay: PHOTOS_PER_DAY });
+    }
+    const b = await readJson(req, 9 * 1024 * 1024);
+    const m = /^data:(image\/(?:jpeg|png|webp|heic));base64,([A-Za-z0-9+/=]+)$/.exec(String(b?.image || ""));
+    if (!m) return json(res, 400, { error: "bad_image" });
+    const buf = Buffer.from(m[2], "base64");
+    try {
+      const r = await giga.readLeaflet(buf, { mime: m[1], filename: "leaflet." + m[1].split("/")[1] });
+      const typed = String(b?.name || "").trim();
+      return json(res, 200, {
+        fields: r.fields, quotes: r.quotes, rejected: r.rejected,
+        nameOnPhoto: r.nameOnPhoto,
+        // Название со снимка не применяем — только предупреждаем, если оно
+        // заметно разошлось с тем, что человек ввёл: вдруг снята не та коробка.
+        mismatch: !!(typed && r.nameOnPhoto && !sameName(typed, r.nameOnPhoto)),
+      });
+    } catch (e) {
+      if (e.status) return json(res, e.status, { error: e.code || "bad_request", message: e.message });
+      console.error("Снимок вкладыша не прочитан:", e.message);
+      return json(res, 502, { error: "upstream", message: e.message });
+    }
+  }
+
+  /* Человек подтвердил поля — отправляем их в ОБЩИЙ каталог. Анонимно:
+     ни кто подтвердил, ни из какого дома, там не хранится. */
+  if (p === "/api/catalog" && method === "POST") {
+    const b = await readJson(req);
+    return need(store.catalogPut(b, b?.source === "photo" ? "photo" : "user"));
   }
 
   if (p === "/api/items" && method === "GET") return json(res, 200, { items: store.items(user.id, hh()) });

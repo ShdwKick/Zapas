@@ -40,6 +40,8 @@ AUTH_ISSUER=http://localhost:8792 AUTH_CLIENT_ID=zapas node server.js
 | `AUTH_CLIENT_ID` | `zapas` |
 | `ADMIN_INTERNAL_KEY` | общий ключ с Admin: `/internal/*` и уборка удалённых аккаунтов |
 | `DATA_DIR` | куда класть `zapas.db` и ключи VAPID (по умолчанию `./data`) |
+| `GIGACHAT_AUTH_KEY` | чтение вкладыша по фотографии; без него эта кнопка просто не появляется |
+| `PHOTOS_PER_DAY` | сколько снимков в сутки на человека (по умолчанию 30) |
 | `PUBLIC_URL` | адрес для ссылок в уведомлениях |
 | `VAPID_SUBJECT` | контакт отправителя push, обычно адрес сервиса |
 | `PORT` | 8799 |
@@ -49,7 +51,7 @@ AUTH_ISSUER=http://localhost:8792 AUTH_CLIENT_ID=zapas node server.js
 Обычные скрипты с кодом возврата, без зависимостей и без сети:
 
 ```bash
-node test/expiry.test.mjs && node test/gs1.test.mjs && node test/leaflet.test.mjs && node test/home.test.mjs && node test/store.test.mjs
+for t in test/*.test.mjs; do node "$t" || break; done
 ```
 
 - `expiry` — правила сроков: конец месяца, вскрытие, пороги подсветки, порядок.

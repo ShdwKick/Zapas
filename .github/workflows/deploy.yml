@@ -34,6 +34,7 @@ jobs:
       - run: node test/gs1.test.mjs
       - run: node test/leaflet.test.mjs
       - run: node test/home.test.mjs
+      - run: node test/catalog.test.mjs
       - run: node test/store.test.mjs
 
   build-and-push:

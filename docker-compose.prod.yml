@@ -29,8 +29,11 @@ services:
       # VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY — необязательны.
       VAPID_SUBJECT: https://zapas.burninghouse.ru
       PUBLIC_URL: https://zapas.burninghouse.ru
-      # GIGACHAT_AUTH_KEY здесь НЕ нужен: инструкции разбирает tools/leaflet.mjs
-      # на машине разработчика, в рантайме сеть не нужна (ARCHITECTURE.md).
+      # Чтение вкладыша по фотографии (ARCHITECTURE.md, «Фотография вкладыша»).
+      # Без ключа сервис работает целиком — просто не предлагает снимать.
+      # Справочник из PDF по-прежнему собирается офлайн, этот ключ не для него.
+      GIGACHAT_AUTH_KEY: ${GIGACHAT_AUTH_KEY:-}
+      PHOTOS_PER_DAY: 30
     ports:
       # Только на localhost — наружу отдаёт nginx на 443.
       - "127.0.0.1:8799:8799"

@@ -324,3 +324,16 @@ h1,h2{ font-weight:650; letter-spacing:-.01em; }
 .kinds .check{ display:flex; align-items:center; gap:.5rem; font-size:.9rem; }
 .group .row{ margin-top:.75rem; flex-wrap:wrap; }
 .places li small{ color:var(--muted); }
+
+/* ── снимок вкладыша ── */
+.shoot{ margin:.2rem 0 .8rem; display:grid; gap:.3rem; }
+.shoot small{ color:var(--muted); font-size:.78rem; line-height:1.35; }
+.draft{ list-style:none; margin:.5rem 0 1rem; padding:0; display:grid; gap:.6rem; }
+.draft li{ display:grid; gap:.2rem; padding:.6rem .7rem; border:1px solid var(--line); border-radius:10px; background:var(--card); }
+.draft q{ font-size:.8rem; color:var(--muted); font-style:italic; }
+.draft q.noq{ opacity:.6; }
+.warn{
+  margin:0 0 .8rem; padding:.6rem .8rem; font-size:.9rem;
+  color:var(--s-urgent); border:1px solid color-mix(in srgb, var(--s-urgent) 45%, var(--line));
+  border-radius:10px; background:color-mix(in srgb, var(--s-urgent) 8%, var(--card));
+}
