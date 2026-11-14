@@ -203,6 +203,11 @@ const TYPES = {
   ".ico": "image/x-icon",
   ".webmanifest": "application/manifest+json; charset=utf-8",
   ".txt": "text/plain; charset=utf-8",
+  // Без этой строки распознаватель уезжал как application/octet-stream, и
+  // ломались сразу две вещи: nginx не жал его (gzip работает по типу — 925 КБ
+  // вместо 409 на телефон) и браузер не компилировал wasm на лету, откатываясь
+  // на медленный путь через ArrayBuffer.
+  ".wasm": "application/wasm",
 };
 
 function json(res, code, body) {
