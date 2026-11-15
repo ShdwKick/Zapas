@@ -366,6 +366,9 @@ async function renderShopping() {
 const ICON = {
   pencil: `<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>`,
   trash: `<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg>`,
+  // Участника не удаляют, а выводят из дома: корзина здесь сказала бы о
+  // человеке не то. Человек со знаком минус — ровно про «больше не с нами».
+  userMinus: `<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 20v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><path d="M17 11h5"/></svg>`,
 };
 
 const KIND_LABEL = {
@@ -410,7 +413,8 @@ async function renderHome() {
       <ul class="places">${data.members.map(m => `<li>
         <span class="place-name">${esc(m.name || "участник")}${m.isMe ? " <small>— вы</small>" : ""}</span>
         <span class="place-n">${m.role === "owner" ? "владелец" : ""}</span>
-        ${isOwner && !m.isMe ? `<button class="link danger" data-remove="${m.userId}">убрать</button>` : ""}
+        ${isOwner && !m.isMe ? `<button class="icon-btn danger" data-remove="${m.userId}" title="Убрать из дома"
+          aria-label="Убрать из дома: ${esc(m.name || "участник")}">${ICON.userMinus}</button>` : ""}
       </li>`).join("")}</ul>
       ${data.invites.outgoing.length ? `<p class="hint">Ждут ответа: ${data.invites.outgoing.map(i =>
         `${esc(i.toUser.slice(0, 8))}… <button class="link" data-cancel="${i.id}">отменить</button>`).join(", ")}</p>` : ""}
@@ -442,8 +446,13 @@ async function renderHome() {
   for (const b of view.querySelectorAll("[data-decline]")) b.onclick = async () => { await api.answerInvite(b.dataset.decline, "decline"); renderHome(); };
   for (const b of view.querySelectorAll("[data-cancel]")) b.onclick = async () => { await api.cancelInvite(b.dataset.cancel); renderHome(); };
   for (const b of view.querySelectorAll("[data-remove]")) b.onclick = async () => {
-    if (!await askSheet({ title: "Убрать участника из дома?",
-      hint: "Аптечка останется у дома, а не у него.", confirm: "Убрать", danger: true })) return;
+    // Кнопка теперь без слов, поэтому имя называет подтверждение: при
+    // нескольких участниках иначе не видно, кого именно убираешь.
+    const who = data.members.find(m => m.userId === b.dataset.remove);
+    if (!await askSheet({
+      title: `Убрать из дома: ${who?.name || "участник"}?`,
+      hint: "Аптечка останется у дома, а не у него.", confirm: "Убрать", danger: true,
+    })) return;
     await api.removeMember(b.dataset.remove);
     renderHome();
   };
