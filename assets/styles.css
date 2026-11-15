@@ -56,6 +56,13 @@
 
 /* Фон отдаёт html, body прозрачный — иначе слой .bh-backdrop--page окажется
    под непрозрачной заливкой и его просто не будет видно (brand.css). */
+/* Правило браузера [hidden]{display:none} слабее любого нашего display, и
+   элемент, спрятанный атрибутом, остаётся на экране. Для .sheet-host это
+   означало невидимый слой во весь экран поверх всего: кнопки переставали
+   нажиматься целиком, а выглядело так, будто сломался JavaScript. Ставим
+   явно и с !important — у [hidden] не должно быть исключений. */
+[hidden]{ display:none !important; }
+
 html{ background:var(--bg); }
 body{
   margin:0; background:transparent; color:var(--fg);
