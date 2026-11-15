@@ -386,3 +386,23 @@ h1,h2{ font-weight:650; letter-spacing:-.01em; }
   color:var(--s-urgent); border:1px solid color-mix(in srgb, var(--s-urgent) 45%, var(--line));
   border-radius:10px; background:color-mix(in srgb, var(--s-urgent) 8%, var(--card));
 }
+
+/* ── кнопки без слов ──
+   Иконка вместо подписи экономит строку, но платить за это промахами
+   нельзя: площадь нажатия 40×40 (рекомендуемый минимум для пальца), и
+   что кнопка делает — сказано в aria-label, иначе чтение с экрана даёт
+   подряд «кнопка, кнопка». */
+.icon-btn{
+  flex:none; display:inline-flex; align-items:center; justify-content:center;
+  width:40px; height:40px; padding:0; cursor:pointer;
+  color:var(--muted); background:transparent;
+  border:1px solid transparent; border-radius:10px;
+  transition:color .12s, border-color .12s, background-color .12s;
+}
+.icon-btn svg{ width:18px; height:18px; }
+.icon-btn.danger{ color:color-mix(in srgb, var(--s-expired) 75%, var(--muted)); }
+@media (hover: hover) and (pointer: fine){
+  .icon-btn:hover{ color:var(--fg); border-color:var(--line); background:var(--card); }
+  .icon-btn.danger:hover{ color:var(--s-expired); border-color:color-mix(in srgb, var(--s-expired) 45%, var(--line)); }
+}
+.icon-btn:active{ transform:scale(.94); }

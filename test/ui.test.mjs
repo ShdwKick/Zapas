@@ -64,6 +64,12 @@ const app = read("../assets/app.js");
   eq("prompt() не вызывается", (code.match(calls("prompt")) || []).length, 0);
   eq("confirm() не вызывается", (code.match(calls("confirm")) || []).length, 0);
 
+  // Кнопка без слов обязана называться для чтения с экрана, иначе список
+  // превращается в «кнопка, кнопка, кнопка».
+  const iconBtns = [...app.matchAll(/<button class="icon-btn[^"]*"([^>]*)>/g)].map(m => m[1]);
+  eq("иконочные кнопки есть", iconBtns.length > 0, true);
+  eq("и у каждой есть aria-label", iconBtns.every(a => /aria-label="/.test(a)), true);
+
   eq("дата показывается через Intl", /Intl\.DateTimeFormat\("ru-RU"/.test(app), true);
   eq("на экране списка есть заголовок", /<h1 class="sr-only">/.test(app), true);
 }

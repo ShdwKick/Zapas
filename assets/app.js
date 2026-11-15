@@ -307,8 +307,8 @@ async function renderPlaces() {
       ${places.map(p => `<li data-id="${p.id}">
         <span class="place-name">${esc(p.name)}</span>
         <span class="place-n">${p.packs}</span>
-        <button class="link" data-rename="${p.id}">переименовать</button>
-        <button class="link danger" data-del="${p.id}">удалить</button>
+        <button class="icon-btn" data-rename="${p.id}" title="Переименовать" aria-label="Переименовать место «${esc(p.name)}»">${ICON.pencil}</button>
+        <button class="icon-btn danger" data-del="${p.id}" title="Удалить" aria-label="Удалить место «${esc(p.name)}»">${ICON.trash}</button>
       </li>`).join("") || `<li class="empty">Мест пока нет.</li>`}
     </ul>
     <form class="row" id="addPlace">
@@ -358,6 +358,15 @@ async function renderShopping() {
 }
 
 /* ---------- экран дома: участники, приглашения, напоминания ---------- */
+
+/* Иконки для кнопок без слов. Сам значок всегда aria-hidden, а что кнопка
+   делает — написано в aria-label рядом, с названием места: «Удалить место
+   „Аптечка“». Иначе человек, слушающий страницу, получает список из
+   одинаковых «кнопка, кнопка, кнопка». */
+const ICON = {
+  pencil: `<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>`,
+  trash: `<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg>`,
+};
 
 const KIND_LABEL = {
   expiring: "истекает в этом месяце",
