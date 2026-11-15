@@ -204,6 +204,7 @@ async function renderList() {
   }
 
   view.innerHTML = `
+    <h1 class="sr-only">Аптечка</h1>
     <section class="summary" aria-label="Сводка и фильтр по состоянию">
       ${chip("expired", s.expired, "истекло")}
       ${chip("urgent", s.urgent, "вот-вот")}
@@ -285,6 +286,15 @@ function bindPackCards() {
   }
 }
 
+/** 'YYYY-MM-DD' → «14 ноября 2026». Формат даёт Intl, а не наша табличка:
+ *  у браузера он всегда правильный для языка страницы. */
+function humanDate(iso) {
+  const [y, m, d] = String(iso || "").split("-").map(Number);
+  if (!y || !m || !d) return String(iso || "");
+  try { return new Intl.DateTimeFormat("ru-RU", { day: "numeric", month: "long", year: "numeric" }).format(new Date(Date.UTC(y, m - 1, d))); }
+  catch { return iso; }
+}
+
 const fmtQty = (q, unit) => `${Number(q) % 1 ? Number(q).toFixed(1).replace(".", ",") : q}${unit ? " " + unit : ""}`;
 
 async function renderPlaces() {
@@ -302,7 +312,7 @@ async function renderPlaces() {
       </li>`).join("") || `<li class="empty">Мест пока нет.</li>`}
     </ul>
     <form class="row" id="addPlace">
-      <input name="name" placeholder="Новое место" maxlength="80" required>
+      <input name="name" autocomplete="off" placeholder="Новое место" maxlength="80" required>
       <button class="btn" type="submit">Добавить</button>
     </form>`;
 
@@ -313,12 +323,16 @@ async function renderPlaces() {
   };
   for (const b of view.querySelectorAll("[data-rename]")) b.onclick = async () => {
     const cur = places.find(p => p.id === b.dataset.rename);
-    const name = prompt("Новое название места", cur.name);
+    const name = await askSheet({
+      title: "Новое название места", confirm: "Переименовать",
+      field: { label: "Название", value: cur.name, maxlength: 80 },
+    });
     if (name && await api.renamePlace(b.dataset.rename, name)) renderPlaces();
   };
   for (const b of view.querySelectorAll("[data-del]")) b.onclick = async () => {
     const cur = places.find(p => p.id === b.dataset.del);
-    if (!confirm(`Удалить место «${cur.name}»? Упаковки останутся, но без места.`)) return;
+    if (!await askSheet({ title: `Удалить место «${cur.name}»?`,
+      hint: "Упаковки останутся, но без места.", confirm: "Удалить", danger: true })) return;
     await api.deletePlace(b.dataset.del);
     renderPlaces();
   };
@@ -419,18 +433,23 @@ async function renderHome() {
   for (const b of view.querySelectorAll("[data-decline]")) b.onclick = async () => { await api.answerInvite(b.dataset.decline, "decline"); renderHome(); };
   for (const b of view.querySelectorAll("[data-cancel]")) b.onclick = async () => { await api.cancelInvite(b.dataset.cancel); renderHome(); };
   for (const b of view.querySelectorAll("[data-remove]")) b.onclick = async () => {
-    if (!confirm("Убрать участника из дома? Аптечка останется у дома, а не у него.")) return;
+    if (!await askSheet({ title: "Убрать участника из дома?",
+      hint: "Аптечка останется у дома, а не у него.", confirm: "Убрать", danger: true })) return;
     await api.removeMember(b.dataset.remove);
     renderHome();
   };
   $("#inviteBtn").onclick = () => openInvite();
   const rn = $("#renameBtn");
   if (rn) rn.onclick = async () => {
-    const name = prompt("Как назвать дом?", data.household.name);
+    const name = await askSheet({
+      title: "Как назвать дом?", confirm: "Переименовать",
+      field: { label: "Название", value: data.household.name, maxlength: 80 },
+    });
     if (name && await api.renameHousehold(name)) renderHome();
   };
   $("#leaveBtn").onclick = async () => {
-    if (!confirm("Выйти из дома? Общая аптечка останется у остальных.")) return;
+    if (!await askSheet({ title: "Выйти из дома?",
+      hint: "Общая аптечка останется у остальных.", confirm: "Выйти", danger: true })) return;
     const r = await api.leaveHousehold();
     if (!r) return toast("В доме вы один — выйти некуда. Данные удаляются отдельно.");
     toast("Вы вышли из дома");
@@ -525,7 +544,14 @@ function openSheet(html, onMount) {
   for (const el of host.querySelectorAll("[data-close]")) el.onclick = closeSheet;
   document.body.classList.add("locked");
   if (onMount) onMount();
-  const first = host.querySelector("input, select, button:not([data-close])");
+  focusFirst(host);
+}
+
+/** Фокус в первое поле — только там, где есть настоящий курсор. На телефоне
+ *  это вызывает клавиатуру, и она закрывает половину только что открытой формы. */
+function focusFirst(scope) {
+  if (!matchMedia("(hover: hover) and (pointer: fine)").matches) return;
+  const first = scope.querySelector("input:not([type=hidden]), select, button:not([data-close])");
   if (first) first.focus();
 }
 function closeSheet() {
@@ -534,6 +560,49 @@ function closeSheet() {
   document.body.classList.remove("locked");
 }
 addEventListener("keydown", e => { if (e.key === "Escape" && !host.hidden) closeSheet(); });
+
+/**
+ * Маленький лист вместо системных prompt() и confirm().
+ *
+ * prompt() на телефоне — окно без нужной клавиатуры и без выбора из
+ * списка: «куда переложить» он превращал в нумерованное меню, которое
+ * надо читать стоя у шкафчика. Здесь же сразу числовая клавиатура,
+ * настоящий <select> и кнопка под большим пальцем.
+ *
+ * Возвращает введённое значение или null, если человек передумал.
+ */
+function askSheet({ title, hint, field, confirm: confirmText, danger }) {
+  return new Promise(resolve => {
+    let done = false;
+    const finish = v => { if (!done) { done = true; closeSheet(); resolve(v); } };
+    const body = field ? (field.options
+      ? `<label>${esc(field.label)}<select name="v">${field.options.map(o =>
+        `<option value="${esc(o.value)}"${o.value === field.value ? " selected" : ""}>${esc(o.label)}</option>`).join("")}</select></label>`
+      : `<label>${esc(field.label)}<input name="v" value="${esc(field.value ?? "")}"
+           ${field.numeric ? 'inputmode="decimal"' : ""} maxlength="${field.maxlength || 200}" autocomplete="off"></label>`)
+      : "";
+    openSheet(`
+      <form id="askForm">
+        <h2>${esc(title)}</h2>
+        ${hint ? `<p class="hint">${esc(hint)}</p>` : ""}
+        ${body}
+        <div class="actions">
+          <button class="btn ghost" type="button" id="askNo">Отмена</button>
+          <button class="btn${danger ? " danger" : ""}" type="submit">${esc(confirmText || "Готово")}</button>
+        </div>
+      </form>`, () => {
+      $("#askNo").onclick = () => finish(null);
+      for (const el of host.querySelectorAll("[data-close]")) el.onclick = () => finish(null);
+      $("#askForm").onsubmit = e => {
+        e.preventDefault();
+        finish(field ? (new FormData(e.target).get("v") || "").toString().trim() : true);
+      };
+      focusFirst(host);
+    });
+    // Закрыли крестиком/фоном/Escape — промис не должен зависнуть.
+    const watch = setInterval(() => { if (host.hidden) { clearInterval(watch); finish(null); } }, 200);
+  });
+}
 
 /** Барабаны месяца и года вместо календаря: на упаковке напечатан месяц,
  *  а календарь на телефоне — три тапа и промах (ARCHITECTURE.md). */
@@ -573,12 +642,12 @@ function openAdd(pre = {}) {
         pre.known ? "" : "<br><small>Назовите препарат один раз — дальше этот код будет узнаваться сам.</small>"}</p>` : ""}
       <label>Название<input name="name" required maxlength="200" autocomplete="off" placeholder="Ибупрофен" value="${val(it.name)}"></label>
       <div class="two">
-        <label>Дозировка<input name="dose" maxlength="60" placeholder="200 мг" value="${val(it.dose)}"></label>
-        <label>Форма<input name="form" maxlength="120" placeholder="таблетки" value="${val(it.form)}"></label>
+        <label>Дозировка<input name="dose" autocomplete="off" maxlength="60" placeholder="200 мг" value="${val(it.dose)}"></label>
+        <label>Форма<input name="form" autocomplete="off" maxlength="120" placeholder="таблетки" value="${val(it.form)}"></label>
       </div>
       <label>Срок годности на упаковке${monthPicker(pre.expiresOn || "")}</label>
       <div class="two">
-        <label>Сколько<input name="qty" inputmode="decimal" placeholder="20" value="${val(it.packQty)}"></label>
+        <label>Сколько<input name="qty" autocomplete="off" inputmode="decimal" placeholder="20" value="${val(it.packQty)}"></label>
         <label>Единица<select name="unit">${UNIT_OPTIONS.map(u => `<option${u === (it.unit || "таб") ? " selected" : ""}>${u}</option>`).join("")}</select></label>
       </div>
       <label>Где лежит<select name="placeId">
@@ -591,11 +660,11 @@ function openAdd(pre = {}) {
       </p>` : ""}
       <details class="extra">
         <summary>Ещё</summary>
-        <label>Годен после вскрытия, дней<input name="afterOpenDays" inputmode="numeric" placeholder="28" value="${val(it.afterOpenDays)}">
+        <label>Годен после вскрытия, дней<input name="afterOpenDays" autocomplete="off" inputmode="numeric" placeholder="28" value="${val(it.afterOpenDays)}">
           <small>Капли и сиропы живут недели после вскрытия, а на коробке стоит далёкий год. Если знаете — впишите, срок пересчитается сам.</small></label>
-        <label>Действующее вещество<input name="mnn" maxlength="200" placeholder="ибупрофен" value="${val(it.mnn)}"></label>
-        <label>Предупреждать, когда останется<input name="lowAt" inputmode="decimal" placeholder="4" value="${val(it.lowAt)}"></label>
-        <label>Заметка<input name="note" maxlength="300"></label>
+        <label>Действующее вещество<input name="mnn" autocomplete="off" maxlength="200" placeholder="ибупрофен" value="${val(it.mnn)}"></label>
+        <label>Предупреждать, когда останется<input name="lowAt" autocomplete="off" inputmode="decimal" placeholder="4" value="${val(it.lowAt)}"></label>
+        <label>Заметка<input name="note" autocomplete="off" maxlength="300"></label>
       </details>
       <div class="actions">
         <button class="btn ghost" type="button" data-close>Отмена</button>
@@ -652,7 +721,7 @@ function openAdd(pre = {}) {
       } catch { /* нет сети или справочника — просто добавим как есть */ }
       const r = await api.addPack(body);
       closeSheet();
-      if (!r) return toast("Не получилось добавить");
+      if (!r) return toast("Не добавилось. Проверьте название и попробуйте ещё раз");
       // Подтверждённое со снимка уезжает в общий каталог: следующий дом с
       // этим препаратом получит поля даром. Анонимно — см. ARCHITECTURE.md.
       if (pre.fromPhoto) {
@@ -695,7 +764,7 @@ async function readLeafletPhoto(form, onApply) {
     toast("Читаю вкладыш…");
     let r;
     try { r = await api.readLeaflet(image, form.name.value.trim()); }
-    catch (e) { return toast("Не получилось прочитать снимок"); }
+    catch (e) { return toast("Снимок не прочитался. Снимите ближе и при свете или введите руками"); }
     if (!r) return toast("Снимок не подошёл — нужен кадр страницы инструкции");
     showLeafletDraft(r, form, onApply);
   };
@@ -782,7 +851,7 @@ async function openPack(id, fallback) {
         <div><dt>Срок</dt><dd class="st-${p.expiry.status}">${esc(X.human(p.expiry))}${p.expiry.source === "opened" ? " <small>— считается от вскрытия</small>" : ""}</dd></div>
         <div><dt>Осталось</dt><dd>${fmtQty(p.qty, i.unit)}</dd></div>
         <div><dt>Где</dt><dd>${esc(state.places.find(x => x.id === p.placeId)?.name || "не указано")}</dd></div>
-        ${p.openedOn ? `<div><dt>Вскрыто</dt><dd>${esc(p.openedOn)}</dd></div>` : ""}
+        ${p.openedOn ? `<div><dt>Вскрыто</dt><dd>${esc(humanDate(p.openedOn))}</dd></div>` : ""}
         ${i.mnn ? `<div><dt>Вещество</dt><dd>${esc(i.mnn)}</dd></div>` : ""}
         ${i.storageMaxC !== null && i.storageMaxC !== undefined ? `<div><dt>Хранить</dt><dd>не выше ${i.storageMaxC} °C</dd></div>` : ""}
         ${p.note ? `<div><dt>Заметка</dt><dd>${esc(p.note)}</dd></div>` : ""}
@@ -806,21 +875,29 @@ async function openPack(id, fallback) {
 
 async function packAction(p, act) {
   if (act === "take") {
-    const raw = prompt(`Сколько взяли? Осталось ${fmtQty(p.qty, p.item.unit)}`, "1");
+    const raw = await askSheet({
+      title: "Сколько взяли?",
+      hint: `Осталось ${fmtQty(p.qty, p.item.unit)}`,
+      field: { label: `Сколько, ${p.item.unit || "штук"}`, value: "1", numeric: true, maxlength: 8 },
+      confirm: "Взять",
+    });
     if (raw === null) return;
-    const qty = Number(raw.replace(",", "."));
-    if (!(qty > 0)) return;
+    const qty = Number(String(raw).replace(",", "."));
+    if (!(qty > 0)) return toast("Нужно число больше нуля");
     await apply(p, { action: "take", qty }, `Взяли ${fmtQty(qty, p.item.unit)}`);
   } else if (act === "open") {
     await apply(p, { action: "open" }, "Отмечено как вскрытое");
   } else if (act === "move") {
-    const names = state.places.map((pl, n) => `${n + 1}. ${pl.name}`).join("\n");
-    const raw = prompt(`Куда переложить?\n0. без места\n${names}`, "1");
-    if (raw === null) return;
-    const n = Number(raw);
-    const placeId = n === 0 ? null : state.places[n - 1]?.id;
-    if (n !== 0 && !placeId) return;
-    await apply(p, { action: "move", placeId }, "Переложено");
+    const chosen = await askSheet({
+      title: "Куда переложить?",
+      field: {
+        label: "Место", value: p.placeId || "",
+        options: [{ value: "", label: "— без места —" }, ...state.places.map(pl => ({ value: pl.id, label: pl.name }))],
+      },
+      confirm: "Переложить",
+    });
+    if (chosen === null) return;
+    await apply(p, { action: "move", placeId: chosen || null }, "Переложено");
   } else if (act === "discard") {
     await apply(p, { action: "discard" }, "Выброшено");
   } else if (act === "restore") {
@@ -828,7 +905,8 @@ async function packAction(p, act) {
   } else if (act === "edit") {
     openEdit(p);
   } else if (act === "delete") {
-    if (!confirm("Удалить запись совсем? Журнал по ней тоже исчезнет.")) return;
+    if (!await askSheet({ title: "Удалить запись совсем?",
+      hint: "Журнал по ней тоже исчезнет.", confirm: "Удалить", danger: true })) return;
     await api.deletePack(p.id);
     closeSheet();
     toast("Запись удалена");
@@ -839,7 +917,7 @@ async function packAction(p, act) {
 async function apply(p, body, message) {
   const r = await api.patchPack(p.id, body);
   closeSheet();
-  if (!r) return toast("Не получилось");
+  if (!r) return toast("Не вышло. Обновите страницу и повторите");
   toast(message, { undo: true });
   render();
 }
@@ -850,14 +928,14 @@ function openEdit(p) {
     <form id="editForm">
       <h2>Править: ${esc(i.name)}</h2>
       <label>Срок годности${monthPicker(p.expiresOn)}</label>
-      <label>Осталось<input name="qty" inputmode="decimal" value="${esc(p.qty)}"></label>
+      <label>Осталось<input name="qty" autocomplete="off" inputmode="decimal" value="${esc(p.qty)}"></label>
       <label>Где лежит<select name="placeId">
         <option value="">— не указано —</option>
         ${state.places.map(pl => `<option value="${pl.id}"${pl.id === p.placeId ? " selected" : ""}>${esc(pl.name)}</option>`).join("")}
       </select></label>
-      <label>Заметка<input name="note" maxlength="300" value="${esc(p.note || "")}"></label>
+      <label>Заметка<input name="note" autocomplete="off" maxlength="300" value="${esc(p.note || "")}"></label>
       ${p.openedOn ? `<label class="check"><input type="checkbox" name="unopen"> Вскрытие отмечено по ошибке</label>` : ""}
-      <label>Годен после вскрытия, дней<input name="afterOpenDays" inputmode="numeric" value="${esc(i.afterOpenDays ?? "")}">
+      <label>Годен после вскрытия, дней<input name="afterOpenDays" autocomplete="off" inputmode="numeric" value="${esc(i.afterOpenDays ?? "")}">
         <small>Свойство препарата, а не этой упаковки: изменится у всех упаковок «${esc(i.name)}».</small></label>
       <div class="actions">
         <button class="btn ghost" type="button" data-close>Отмена</button>

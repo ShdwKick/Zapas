@@ -49,5 +49,24 @@ const app = read("../assets/app.js");
   }
 }
 
+{ /* Ревью по Web Interface Guidelines — сторожа на то, что уже чинили. */
+  eq("нажимаемое без задержки двойного тапа", /touch-action\s*:\s*manipulation/.test(css), true);
+  eq("лист не утягивает страницу", (css.match(/overscroll-behavior\s*:\s*contain/g) || []).length >= 2, true);
+  eq("есть видимый фокус у всего нажимаемого", /button:focus-visible/.test(css), true);
+  eq("есть состояния наведения", /@media \(hover: hover\)/.test(css), true);
+  eq("длинные названия переносятся", /overflow-wrap\s*:\s*anywhere/.test(css), true);
+
+  // Системные окна: на телефоне это чужая клавиатура и чужой вид.
+  // Комментарии вырезаем — в них эти слова упоминаются как раз потому,
+  // что объясняют, почему их больше нет.
+  const code = app.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  const calls = n => new RegExp(`(^|[^.\\w])${n}\\s*\\(`, "g");
+  eq("prompt() не вызывается", (code.match(calls("prompt")) || []).length, 0);
+  eq("confirm() не вызывается", (code.match(calls("confirm")) || []).length, 0);
+
+  eq("дата показывается через Intl", /Intl\.DateTimeFormat\("ru-RU"/.test(app), true);
+  eq("на экране списка есть заголовок", /<h1 class="sr-only">/.test(app), true);
+}
+
 console.log(fails ? `\nПровалено: ${fails}` : "\nВсё прошло.");
 process.exit(fails ? 1 : 0);
