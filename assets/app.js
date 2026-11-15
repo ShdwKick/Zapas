@@ -87,7 +87,11 @@ async function loadConfig() {
 
 /** Вход необязателен. Если он есть и человек вошёл — работаем с сервером. */
 async function initAuth() {
-  if (!cfg.authBase || typeof createAuthClient !== "function") return;
+  if (!cfg.authBase) return;
+  if (typeof createAuthClient !== "function") {
+    console.error("Вход недоступен: assets/auth-client.js не загружен — проверьте <script> в index.html");
+    return;
+  }
   auth = createAuthClient({
     authBase: cfg.authBase,
     clientId: cfg.clientId,
@@ -158,9 +162,10 @@ async function render() {
 function renderAccount() {
   const box = $("#account");
   if (api.guest) {
-    box.innerHTML = cfg.authBase
-      ? `<button class="btn ghost" id="loginBtn">Войти</button>`
-      : "";
+    // Условие именно про auth, а не про cfg.authBase: адрес входа может
+    // быть задан, а клиент не загрузиться — тогда кнопка нарисовалась бы
+    // мёртвой. Лучше её не показывать вовсе.
+    box.innerHTML = auth ? `<button class="btn ghost" id="loginBtn">Войти</button>` : "";
     const b = $("#loginBtn");
     if (b) b.onclick = () => auth.login();
     return;

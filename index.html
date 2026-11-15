@@ -106,6 +106,10 @@
      сервер через require, и второй копии этих правил быть не должно. -->
 <script src="/assets/expiry.js"></script>
 <script src="/assets/gs1.js"></script>
+<!-- Клиент входа: копия Auth/client/auth-client-browser.js. Он объявляет
+     createAuthClient, без него кнопка «Войти» рисуется, но вызывать ей
+     нечего — и выглядит это как мёртвая кнопка. -->
+<script src="/assets/auth-client.js"></script>
 <script type="module" src="/assets/app.js"></script>
 </body>
 </html>

@@ -34,6 +34,20 @@ const app = read("../assets/app.js");
   eq("app.js подключён модулем", /<script type="module" src="\/assets\/app\.js"/.test(html), true);
 }
 
+{ /* Каждый глобал, которым пользуется фронт, должен быть ПОДКЛЮЧЁН страницей.
+     Файл может лежать в assets/ и при этом нигде не загружаться: так
+     кнопка «Войти» рисовалась, а createAuthClient не существовал — вызывать
+     ей было нечего, и выглядело это как мёртвая кнопка. */
+  for (const [global, file] of [
+    ["createAuthClient", "/assets/auth-client.js"],
+    ["ZapasExpiry", "/assets/expiry.js"],
+    ["ZapasGs1", "/assets/gs1.js"],
+  ]) {
+    if (!app.includes(global)) continue;
+    eq(`${file} подключён страницей`, html.includes(`src="${file}"`), true);
+  }
+}
+
 { // Глобали, которые фронт берёт у общих файлов, там и объявлены.
   for (const [global, file] of [["ZapasExpiry", "../assets/expiry.js"], ["ZapasGs1", "../assets/gs1.js"]]) {
     eq(`${global} объявлен в ${file.split("/").pop()}`, read(file).includes(`root.${global} =`), true);
