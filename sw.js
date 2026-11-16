@@ -15,13 +15,14 @@
  * 925 КБ, которые нужны не всем и не сразу. Он попадёт в кэш сам, когда
  * человек первый раз откроет сканер, — обычным правилом для статики ниже.
  */
-const VERSION = "zapas-v2";
+const VERSION = "zapas-v3";   // v3: в оболочку добавился assets/tags.js
 const SHELL = [
   "/",
   "/assets/app.js",
   "/assets/local.js",
   "/assets/expiry.js",
   "/assets/gs1.js",
+  "/assets/tags.js",
   "/assets/scan.js",
   "/assets/styles.css",
   "/assets/brand.css",

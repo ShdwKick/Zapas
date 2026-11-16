@@ -32,6 +32,7 @@ jobs:
       # Зависимостей нет, ставить нечего.
       - run: node test/expiry.test.mjs
       - run: node test/gs1.test.mjs
+      - run: node test/tags.test.mjs
       - run: node test/leaflet.test.mjs
       - run: node test/home.test.mjs
       - run: node test/catalog.test.mjs

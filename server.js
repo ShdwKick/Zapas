@@ -484,6 +484,7 @@ async function handleApi(req, res, p) {
         placeId: url.searchParams.get("place") || undefined,
         status: url.searchParams.get("status") || "have",
         kind: url.searchParams.get("kind") || undefined,
+        tag: url.searchParams.get("tag") || undefined,
       }),
       summary: store.summary(user.id, hh()),
     });

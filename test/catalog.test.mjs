@@ -126,5 +126,32 @@ const home = (s, u) => s.ensureHousehold(u, TZ).household.id;
   eq("каталог пуст", s.catalogSize(), 0);
 }
 
+{ /* Ярлыки НЕ уезжают в общий каталог. Это и подсказка, которую сервис не
+     вправе давать («от головы» от сервиса — уже показание к применению), и
+     утечка: по «от давления» и «для Маши» читается слишком много. */
+  const s = fresh();
+  home(s, "аня");
+  s.catalogPut({ name: "Цитрамон", afterOpenDays: 28, tags: ["от головы", "для Маши"] }, "photo");
+  const cols = s.db.prepare("PRAGMA table_info(catalog)").all().map(c => c.name);
+  eq("в каталоге нет колонки ярлыков", cols.includes("tags"), false);
+  eq("и в ответе справочника их нет", s.known({ name: "Цитрамон" }).tags, undefined);
+  eq("и в сохранённом JSON их не найти",
+    /от головы|для Маши/.test(JSON.stringify(s.db.prepare("SELECT * FROM catalog").all())), false);
+
+  // Инструкция ярлыков тоже не подставляет — их там и не бывает.
+  const s2 = fresh({ leaflets: { "П N 1": { name: "Цитрамон", afterOpenDays: 28 } } });
+  const hid = home(s2, "u");
+  const p = s2.addPack("u", hid, { name: "Цитрамон", qty: 1 });
+  eq("из инструкции приехал срок после вскрытия", p.item.afterOpenDays, 28);
+  eq("а ярлыков нет", p.item.tags, []);
+
+  // И из общего каталога тоже: пришло из него только то, что мы туда писали.
+  const s3 = fresh();
+  home(s3, "аня");
+  s3.catalogPut({ name: "Цитрамон", afterOpenDays: 28, tags: ["от головы"] }, "photo");
+  const hid3 = home(s3, "боря");
+  eq("другому дому ярлыки не достались", s3.addPack("боря", hid3, { name: "Цитрамон", qty: 1 }).item.tags, []);
+}
+
 console.log(fails ? `\nПровалено: ${fails}` : "\nВсё прошло.");
 process.exit(fails ? 1 : 0);

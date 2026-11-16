@@ -333,6 +333,20 @@ h1,h2{ font-weight:650; letter-spacing:-.01em; }
 .sheet small{ color:var(--muted); font-size:.78rem; line-height:1.35; }
 .two{ display:grid; grid-template-columns:1fr 1fr; gap:.5rem; }
 .ym{ display:grid; grid-template-columns:1.4fr 1fr; gap:.5rem; }
+
+/* Выбор ярлыков. Чипы здесь ПЕРЕНОСЯТСЯ, в отличие от фильтра сверху:
+   там их три-четыре и строка листается, а тут готовых подсказок дюжина —
+   в прокрутке человек увидел бы две и решил, что выбирать больше нечего. */
+.tagpick{ margin-bottom:.7rem; }
+/* Без display:flex: он съедает треугольник раскрытия, и строка «Ярлыки»
+   выглядела бы просто подписью, а не тем, что можно открыть — как «Ещё». */
+.tagpick > summary{ cursor:pointer; margin-bottom:.35rem; }
+.tagpick .field-label{ font-size:.85rem; color:var(--muted); }
+.tagpick .tag-sum{ margin-left:.4rem; font-size:.8rem; color:var(--muted); opacity:.75; }
+.tagpick[open] .tag-sum{ display:none; }
+.tagpick .chips{ flex-wrap:wrap; overflow:visible; padding-bottom:0; }
+.tagpick .chip{ padding:.45rem .75rem; }
+.tagpick .tag-new-label{ margin:.15rem 0 0; }
 .extra summary{ cursor:pointer; margin:.2rem 0 .7rem; color:var(--muted); font-size:.9rem; }
 .actions{ display:flex; justify-content:flex-end; gap:.5rem; margin-top:1rem; }
 .grid-actions{ display:flex; flex-wrap:wrap; gap:.5rem; margin-top:1rem; }
@@ -342,6 +356,11 @@ h1,h2{ font-weight:650; letter-spacing:-.01em; }
 .facts > div{ display:flex; gap:.6rem; align-items:baseline; }
 .facts dt{ min-width:7rem; color:var(--muted); font-size:.85rem; }
 .facts dd{ margin:0; }
+.tag-list{ display:flex; flex-wrap:wrap; gap:.3rem; }
+.tag-list .tag{
+  padding:.15rem .5rem; font-size:.85rem; color:var(--muted);
+  border:1px solid var(--line); border-radius:999px;
+}
 .facts .st-expired{ color:var(--s-expired); font-weight:600; }
 .facts .st-urgent{ color:var(--s-urgent); font-weight:600; }
 .facts .st-soon{ color:var(--s-soon); }

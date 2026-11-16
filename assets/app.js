@@ -16,6 +16,7 @@ import { openScanner, canScan } from "./scan.js";
 
 const X = globalThis.ZapasExpiry;
 const GS1 = globalThis.ZapasGs1;
+const TAGS = globalThis.ZapasTags;
 const $ = sel => document.querySelector(sel);
 const view = $("#view");
 const esc = s => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -24,7 +25,7 @@ const TZ = (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZon
 let cfg = { authBase: null, clientId: "zapas", units: [] };
 let auth = null;          // null — вход недоступен (нет AUTH_ISSUER или auth лёг)
 let api = null;           // текущее хранилище: сервер или localStorage
-let state = { me: null, places: [], packs: [], summary: null, place: null, status: null, q: "", showGone: false };
+let state = { me: null, places: [], packs: [], summary: null, place: null, status: null, tag: null, q: "", showGone: false };
 
 /* ---------- 1. данные ---------- */
 
@@ -193,13 +194,20 @@ async function renderList() {
   renderAccount();
   const s = state.summary || {};
   const q = state.q.trim().toLowerCase();
+  // Ярлыки считаем ДО фильтра по ярлыку: иначе после первого же нажатия в
+  // строке остался бы один чип и переключиться было бы некуда.
+  const tagRow = tagCounts(state.packs);
   const packs = state.packs.filter(p => (!q
     || p.item.name.toLowerCase().includes(q)
-    || (p.item.mnn || "").toLowerCase().includes(q))
+    || (p.item.mnn || "").toLowerCase().includes(q)
+    // Ярлык — второй способ назвать препарат: «голова» должна находить то,
+    // что человек сам подписал «от головы».
+    || (p.item.tags || []).some(t => TAGS.key(t).includes(TAGS.key(q))))
     // Фильтр по состоянию: сводка — это не только счётчики, но и вопрос
     // «покажи именно их». Законченное и выброшенное сроков уже не имеют,
     // поэтому под фильтр состояния не попадают.
-    && (!state.status || (p.status === "have" && p.expiry.status === state.status)));
+    && (!state.status || (p.status === "have" && p.expiry.status === state.status))
+    && (!state.tag || TAGS.has(p.item.tags, state.tag)));
 
   const groups = new Map();
   for (const p of packs) {
@@ -218,16 +226,20 @@ async function renderList() {
     </section>
     <section class="filters">
       <input class="search" id="q" type="search" placeholder="Название или вещество" value="${esc(state.q)}" autocomplete="off">
-      <div class="chips" id="placeChips">
+      <div class="chips" id="placeChips" role="group" aria-label="Фильтр по месту">
         <button class="chip${state.place ? "" : " on"}" data-place="">Везде</button>
         ${state.places.map(pl => `<button class="chip${state.place === pl.id ? " on" : ""}" data-place="${pl.id}">${esc(pl.name)}<i>${pl.packs}</i></button>`).join("")}
       </div>
+      ${tagRow.length ? `<div class="chips" id="tagChips" role="group" aria-label="Фильтр по ярлыкам">
+        <button class="chip${state.tag ? "" : " on"}" data-tag="">Любой ярлык</button>
+        ${tagRow.map(t => `<button class="chip${TAGS.key(state.tag || "") === TAGS.key(t.tag) ? " on" : ""}" data-tag="${esc(t.tag)}">${esc(t.tag)}<i>${t.n}</i></button>`).join("")}
+      </div>` : ""}
     </section>
     ${packs.length ? [...groups.entries()].map(([k, list]) => `
       <section class="group st-${k}">
         <h2>${k === "gone" ? "Закончилось и выброшено" : STATUS_TITLE[k]} <i>${list.length}</i></h2>
         <ul class="packs">${list.map(packCard).join("")}</ul>
-      </section>`).join("") : `<p class="empty">${state.q || state.place || state.status ? "Ничего не нашлось." : "Пока пусто. Нажмите «Добавить» и внесите первую упаковку."}</p>`}
+      </section>`).join("") : `<p class="empty">${state.q || state.place || state.status || state.tag ? "Ничего не нашлось." : "Пока пусто. Нажмите «Добавить» и внесите первую упаковку."}</p>`}
     <p class="more"><button class="link" id="toggleGone">${state.showGone ? "Скрыть законченное" : "Показать законченное и выброшенное"}</button></p>
   `;
 
@@ -240,6 +252,14 @@ async function renderList() {
   if (state.q) { const el = $("#q"); el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
   for (const b of view.querySelectorAll("#placeChips .chip")) {
     b.onclick = () => { state.place = b.dataset.place || null; renderList(); };
+  }
+  for (const b of view.querySelectorAll("#tagChips .chip")) {
+    // Повторное нажатие по включённому снимает фильтр — как у блоков сводки.
+    b.onclick = () => {
+      const t = b.dataset.tag;
+      state.tag = !t || TAGS.key(state.tag || "") === TAGS.key(t) ? null : t;
+      renderList();
+    };
   }
   for (const b of view.querySelectorAll(".sum[data-status]")) {
     b.onclick = () => {
@@ -267,16 +287,43 @@ function chip(kind, n, label) {
     <b>${n ?? 0}</b><span>${label}</span></button>`;
 }
 
+/**
+ * Какие ярлыки есть у того, что сейчас в списке, и сколько за каждым
+ * упаковок. Считается по уже загруженному списку, без запроса: все ярлыки
+ * приезжают вместе с позициями, а строка должна отзываться сразу.
+ *
+ * Выбранный ярлык остаётся в строке даже с нулём — иначе, отфильтровав всё
+ * до пустоты, фильтр нечем было бы снять.
+ */
+function tagCounts(packs) {
+  const by = new Map();
+  for (const p of packs) {
+    for (const t of p.item.tags || []) {
+      const k = TAGS.key(t);
+      const rec = by.get(k) || { tag: t, n: 0 };
+      rec.n++;
+      by.set(k, rec);
+    }
+  }
+  const sel = TAGS.key(state.tag || "");
+  if (sel && !by.has(sel)) by.set(sel, { tag: state.tag, n: 0 });
+  return [...by.values()].sort((a, b) => b.n - a.n || a.tag.localeCompare(b.tag, "ru"));
+}
+
 function packCard(p) {
   const i = p.item;
-  const label = p.status === "have" ? X.label(p.expiry) : (p.status === "used" ? "закончилось" : "выброшено");
+  const exp = X.human(p.expiry);
+  let label = p.status === "have" ? X.label(p.expiry) : (p.status === "used" ? "закончилось" : "выброшено");
+  // Без срока human() и label() говорят одно и то же, и на карточке выходило
+  // «срок не указан · срок не указан».
+  if (label === exp) label = "";
   const sub = [i.dose, i.form].filter(Boolean).join(", ");
   return `<li class="pack st-${p.status === "have" ? p.expiry.status : "gone"}" data-id="${p.id}">
     <button class="pack-main" data-open="${p.id}">
       <span class="pack-name">${esc(i.name)}${i.rx ? ` <i class="rx" title="по рецепту">Rx</i>` : ""}</span>
       ${sub ? `<span class="pack-sub">${esc(sub)}</span>` : ""}
       <span class="pack-meta">
-        <span class="exp">${esc(X.human(p.expiry))}</span>
+        <span class="exp">${esc(exp)}</span>
         ${label ? `<span class="dot">·</span><span class="left">${esc(label)}</span>` : ""}
         ${p.openedOn ? `<span class="dot">·</span><span class="opened">вскрыто</span>` : ""}
       </span>
@@ -648,6 +695,94 @@ function monthPicker(value) {
 const UNIT_OPTIONS = ["таб", "капс", "мл", "г", "шт", "доза", "пак"];
 
 /**
+ * Выбор ярлыков. Готовые — это названия пустых полок: что на какую полку
+ * положить, решает человек, сервис не подсказывает (assets/tags.js,
+ * «Граница»).
+ *
+ * Значение живёт в скрытом поле строкой: форма отправляется одним
+ * FormData, и чипы не должны требовать своего состояния где-то ещё.
+ */
+function tagPicker(selected) {
+  const sel = TAGS.norm(selected);
+  // Выбранные впереди, за ними готовые. Порядок задаётся ОДИН раз: если
+  // переставлять чипы на каждое нажатие, следующий уезжает из-под пальца.
+  const list = [...sel, ...TAGS.SUGGEST.filter(t => !TAGS.has(sel, t))];
+  /* Свёрнуто, пока ярлыков нет. Дюжина подсказок — это полтора экрана
+     телефона, а главный путь в этой форме другой: поднёс код, вписал срок,
+     добавил. Там, где ярлыки уже есть, раскрыто: иначе непонятно, что
+     правишь. */
+  return `<details class="field tagpick" data-tagpick${sel.length ? " open" : ""}>
+    <summary><span class="field-label">Ярлыки</span><span class="tag-sum">${
+      sel.length ? esc(sel.join(", ")) : "чтобы искать не по названию"}</span></summary>
+    <input type="hidden" name="tags" value="${esc(sel.join(", "))}">
+    <div class="chips" role="group" aria-label="Ярлыки">${list.map(t => tagChip(t, TAGS.has(sel, t))).join("")}</div>
+    <label class="tag-new-label">Свой ярлык
+      <input class="tag-new" name="newTag" autocomplete="off" maxlength="${TAGS.TAG_MAX}" placeholder="например, от зубов">
+    </label>
+    <small>Чтобы искать не по названию: «от головы», «детское». Это ваша пометка — сервис её не подставляет.</small>
+  </details>`;
+}
+
+const tagChip = (t, on) => `<button type="button" class="chip${on ? " on" : ""}" data-tag="${esc(t)}" aria-pressed="${on}">${esc(t)}</button>`;
+
+function bindTagPicker(scope = host) {
+  const box = scope.querySelector("[data-tagpick]");
+  if (!box) return;
+  const hidden = box.querySelector('input[name="tags"]');
+  const row = box.querySelector(".chips");
+  const on = () => [...row.querySelectorAll('[data-tag][aria-pressed="true"]')];
+  const sum = box.querySelector(".tag-sum");
+  // Скрытое поле — единственное состояние: форма уходит одним FormData.
+  const sync = () => {
+    const picked = on().map(b => b.dataset.tag);
+    hidden.value = picked.join(", ");
+    // Свёрнутая строка должна показывать выбранное — иначе, закрыв её,
+    // человек перестаёт понимать, что он отметил.
+    sum.textContent = picked.length ? picked.join(", ") : "чтобы искать не по названию";
+  };
+  const full = () => {
+    if (on().length < TAGS.PER_ITEM) return false;
+    toast(`Больше ${TAGS.PER_ITEM} ярлыков на один препарат не поместится`);
+    return true;
+  };
+  const toggle = b => {
+    const was = b.getAttribute("aria-pressed") === "true";
+    if (!was && full()) return;
+    b.setAttribute("aria-pressed", String(!was));
+    b.classList.toggle("on", !was);
+    sync();
+  };
+  // Делегирование: дописанные ярлыки работают без отдельной подписки, а
+  // нажатый чип остаётся на месте — и фокус с ним.
+  row.onclick = e => {
+    const b = e.target.closest("[data-tag]");
+    if (b) toggle(b);
+  };
+
+  const add = box.querySelector(".tag-new");
+  add.onkeydown = e => {
+    if (e.key !== "Enter") return;
+    // Enter в поле ярлыка добавляет ярлык, а не отправляет форму: иначе
+    // упаковка заводится на полуслове.
+    e.preventDefault();
+    const t = TAGS.norm(add.value)[0];
+    if (!t) return;
+    // Такой ярлык уже есть среди подсказок — отмечаем его, а не плодим второй.
+    const have = [...row.querySelectorAll("[data-tag]")].find(b => TAGS.key(b.dataset.tag) === TAGS.key(t));
+    if (have) {
+      if (have.getAttribute("aria-pressed") !== "true") toggle(have);
+    } else if (!full()) {
+      row.insertAdjacentHTML("beforeend", tagChip(t, true));
+      sync();
+    }
+    add.value = "";
+  };
+}
+
+/** Ярлыки из формы: отмеченные чипы плюс недописанное в поле — Enter нажимать не обязательно. */
+const tagsFrom = f => TAGS.norm(`${f.get("tags") || ""},${f.get("newTag") || ""}`);
+
+/**
  * Форма добавления. pre — то, что уже известно из кода на упаковке:
  * { gtin, serial, expiresOn, item, known } (см. afterScan).
  *
@@ -677,6 +812,7 @@ function openAdd(pre = {}) {
         <option value="">— не указано —</option>
         ${state.places.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join("")}
       </select></label>
+      ${tagPicker(it.tags)}
       ${cfg.photoReading && !api.guest ? `<p class="shoot">
         <button class="btn ghost" type="button" id="shootBtn">Прочитать с инструкции</button>
         <small>Сфотографируйте вкладыш — срок после вскрытия и условия хранения заполнятся сами.</small>
@@ -716,12 +852,16 @@ function openAdd(pre = {}) {
       const el = host.querySelector(`[name="${k}"]`);
       if (el && !el.value && v) el.value = v;
     }
+    // После восстановления: чипы рисуются по скрытому полю, и оно к этому
+    // моменту должно быть уже заполненным.
+    bindTagPicker();
     $("#addForm").onsubmit = async e => {
       e.preventDefault();
       const f = new FormData(e.target);
       const v = k => (f.get(k) || "").toString().trim();
       const body = {
         name: v("name"), dose: v("dose"), form: v("form"), mnn: v("mnn"),
+        tags: tagsFrom(f),
         unit: v("unit"), qty: v("qty") || null,
         afterOpenDays: v("afterOpenDays") || null, lowAt: v("lowAt") || null,
         note: v("note"), placeId: v("placeId") || null,
@@ -876,6 +1016,7 @@ async function openPack(id, fallback) {
         <div><dt>Где</dt><dd>${esc(state.places.find(x => x.id === p.placeId)?.name || "не указано")}</dd></div>
         ${p.openedOn ? `<div><dt>Вскрыто</dt><dd>${esc(humanDate(p.openedOn))}</dd></div>` : ""}
         ${i.mnn ? `<div><dt>Вещество</dt><dd>${esc(i.mnn)}</dd></div>` : ""}
+        ${(i.tags || []).length ? `<div><dt>Ярлыки</dt><dd class="tag-list">${i.tags.map(t => `<span class="tag">${esc(t)}</span>`).join("")}</dd></div>` : ""}
         ${i.storageMaxC !== null && i.storageMaxC !== undefined ? `<div><dt>Хранить</dt><dd>не выше ${i.storageMaxC} °C</dd></div>` : ""}
         ${p.note ? `<div><dt>Заметка</dt><dd>${esc(p.note)}</dd></div>` : ""}
       </dl>
@@ -960,17 +1101,25 @@ function openEdit(p) {
       ${p.openedOn ? `<label class="check"><input type="checkbox" name="unopen"> Вскрытие отмечено по ошибке</label>` : ""}
       <label>Годен после вскрытия, дней<input name="afterOpenDays" autocomplete="off" inputmode="numeric" value="${esc(i.afterOpenDays ?? "")}">
         <small>Свойство препарата, а не этой упаковки: изменится у всех упаковок «${esc(i.name)}».</small></label>
+      ${tagPicker(i.tags)}
+      <p class="hint">Ярлыки тоже у препарата целиком: изменятся у всех упаковок «${esc(i.name)}».</p>
       <div class="actions">
         <button class="btn ghost" type="button" data-close>Отмена</button>
         <button class="btn" type="submit">Сохранить</button>
       </div>
     </form>`, () => {
+    bindTagPicker();
     $("#editForm").onsubmit = async e => {
       e.preventDefault();
       const f = new FormData(e.target);
       const v = k => (f.get(k) || "").toString().trim();
       const after = v("afterOpenDays");
-      if (String(i.afterOpenDays ?? "") !== after) await api.updateItem(i.id, { ...i, afterOpenDays: after || null });
+      const tags = tagsFrom(f);
+      // Позицию трогаем только если и правда поменялось: лишний PATCH
+      // переписал бы updated_at у препарата на каждое сохранение упаковки.
+      const itemChanged = String(i.afterOpenDays ?? "") !== after
+        || tags.join("|") !== TAGS.norm(i.tags).join("|");
+      if (itemChanged) await api.updateItem(i.id, { ...i, afterOpenDays: after || null, tags });
       const body = {
         action: "edit",
         expiresOn: v("expMonth") && v("expYear") ? `${v("expYear")}-${v("expMonth")}` : null,

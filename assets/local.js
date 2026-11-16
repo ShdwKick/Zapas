@@ -15,6 +15,7 @@
  */
 const KEY = "bh-zapas-v1";
 const X = globalThis.ZapasExpiry;
+const T = globalThis.ZapasTags;
 
 const uid = () => (crypto.randomUUID ? crypto.randomUUID()
   : "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => {
@@ -52,6 +53,9 @@ function readItemFields(b) {
     rx: b?.rx === null || b?.rx === undefined ? null : !!b.rx,
     leafletUrl: /^https:\/\//.test(b?.leafletUrl || "") ? b.leafletUrl : null,
     lowAt: n(b?.lowAt), gtin: /^\d{8,14}$/.test(b?.gtin || "") ? b.gtin : null, source: "manual",
+    // Правила склейки ярлыков — те же, что на сервере (assets/tags.js),
+    // иначе при первом входе «От головы» и «от головы» приедут двумя.
+    tags: T.norm(b?.tags),
   };
 }
 
@@ -143,7 +147,11 @@ export function createLocalStore() {
       const f = readItemFields(body);
       if (!f) return null;
       const have = d.items.find(i => i.name.toLowerCase() === f.name.toLowerCase() && (i.dose || "") === (f.dose || ""));
-      if (have) return have;
+      if (have) {
+        // Как на сервере: ярлыки объединяем, а не теряем. Убрать — только правкой.
+        have.tags = T.merge(have.tags, f.tags);
+        return have;
+      }
       const item = { id: uid(), ...f };
       d.items.push(item);
       return item;
@@ -197,13 +205,18 @@ export function createLocalStore() {
       }
       let item = body.itemId ? d.items.find(i => i.id === body.itemId) : null;
       if (!item && g) item = d.items.find(i => i.gtin === g);
-      if (!item) item = api._addItem(d, { ...(body.item || body), gtin: g });
+      if (item) item.tags = T.merge(item.tags, body.tags ?? body.item?.tags);  // как на сервере
+      else item = api._addItem(d, { ...(body.item || body), gtin: g });
       if (!item) return ok(null);
       const pack = {
         id: uid(), itemId: item.id, placeId: body.placeId || null,
         expiresOn: X.isMonth(body.expiresOn) ? body.expiresOn : null,
         openedOn: X.isDay(body.openedOn) ? body.openedOn : null,
-        qty: Number.isFinite(Number(body.qty)) ? Number(body.qty) : (item.packQty ?? 1),
+        // Пустое поле — «не указано», а не ноль: Number(null) === 0, и без
+        // этой проверки упаковка заводилась с нулевым остатком. Сервер
+        // считает так же (num() в lib/store.js).
+        qty: body.qty === "" || body.qty === null || body.qty === undefined || !Number.isFinite(Number(body.qty))
+          ? (item.packQty ?? 1) : Number(body.qty),
         serial, status: "have", note: norm(body.note) || null,
         addedBy: "guest", addedAt: Date.now(),
       };

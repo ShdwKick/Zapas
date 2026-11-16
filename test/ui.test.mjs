@@ -31,6 +31,7 @@ const app = read("../assets/app.js");
   const pos = s => html.indexOf(s);
   eq("expiry.js раньше модуля", pos("/assets/expiry.js") < pos("/assets/app.js"), true);
   eq("gs1.js раньше модуля", pos("/assets/gs1.js") < pos("/assets/app.js"), true);
+  eq("tags.js раньше модуля", pos("/assets/tags.js") < pos("/assets/app.js"), true);
   eq("app.js подключён модулем", /<script type="module" src="\/assets\/app\.js"/.test(html), true);
 }
 
@@ -42,6 +43,7 @@ const app = read("../assets/app.js");
     ["createAuthClient", "/assets/auth-client.js"],
     ["ZapasExpiry", "/assets/expiry.js"],
     ["ZapasGs1", "/assets/gs1.js"],
+    ["ZapasTags", "/assets/tags.js"],
   ]) {
     if (!app.includes(global)) continue;
     eq(`${file} подключён страницей`, html.includes(`src="${file}"`), true);
@@ -49,7 +51,7 @@ const app = read("../assets/app.js");
 }
 
 { // Глобали, которые фронт берёт у общих файлов, там и объявлены.
-  for (const [global, file] of [["ZapasExpiry", "../assets/expiry.js"], ["ZapasGs1", "../assets/gs1.js"]]) {
+  for (const [global, file] of [["ZapasExpiry", "../assets/expiry.js"], ["ZapasGs1", "../assets/gs1.js"], ["ZapasTags", "../assets/tags.js"]]) {
     eq(`${global} объявлен в ${file.split("/").pop()}`, read(file).includes(`root.${global} =`), true);
     eq(`${global} используется фронтом`, app.includes(`globalThis.${global}`), true);
   }
@@ -85,6 +87,15 @@ const app = read("../assets/app.js");
   eq("и у каждой есть aria-label", iconBtns.every(a => /aria-label="/.test(a)), true);
 
   eq("дата показывается через Intl", /Intl\.DateTimeFormat\("ru-RU"/.test(app), true);
+
+  /* Ярлыки. Строка фильтра — группа с названием: иначе это просто набор
+     кнопок без объяснения, что они делают вместе. А чипы выбора в форме
+     должны ПЕРЕНОСИТЬСЯ: готовых подсказок дюжина, и в горизонтальной
+     прокрутке человек увидел бы две из них. */
+  eq("строка ярлыков названа", /id="tagChips"[^>]*aria-label="/.test(app), true);
+  eq("чипы выбора отвечают, нажаты ли они", /data-tag="\$\{esc\(t\)\}" aria-pressed=/.test(app), true);
+  eq("в форме чипы переносятся", /\.tagpick \.chips\{[^}]*flex-wrap\s*:\s*wrap/.test(css), true);
+  eq("Enter в поле ярлыка не отправляет форму", /add\.onkeydown[\s\S]{0,200}preventDefault/.test(app), true);
   eq("на экране списка есть заголовок", /<h1 class="sr-only">/.test(app), true);
 }
 
